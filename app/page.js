@@ -17,8 +17,8 @@ export default function Home(){
   const [profile,setProfile]=useState(null), [membership,setMembership]=useState(null), [workspace,setWorkspace]=useState(null)
   const [projects,setProjects]=useState([]), [project,setProject]=useState(null), [projectMembers,setProjectMembers]=useState([]), [tasks,setTasks]=useState([])
   const [members,setMembers]=useState([]), [teams,setTeams]=useState([]), [view,setView]=useState('projects'), [projectTab,setProjectTab]=useState('overview')
-  const [taskDrawer,setTaskDrawer]=useState(null), [memberDrawer,setMemberDrawer]=useState(null), [search,setSearch]=useState(''), [quickTitle,setQuickTitle]=useState('')
-  const [toast,setToast]=useState(''), [notifications,setNotifications]=useState([])
+  const [taskDrawer,setTaskDrawer]=useState(null), [memberDrawer,setMemberDrawer]=useState(null), [projectCreateOpen,setProjectCreateOpen]=useState(false), [inviteOpen,setInviteOpen]=useState(false), [teamCreateOpen,setTeamCreateOpen]=useState(false), [search,setSearch]=useState(''), [quickTitle,setQuickTitle]=useState('')
+  const [toast,setToast]=useState(''), [notifications,setNotifications]=useState([]), [notificationOpen,setNotificationOpen]=useState(false), [notificationPrefs,setNotificationPrefs]=useState(null)
 
   useEffect(()=>{
     if(!supabase){ setError('Thiếu biến môi trường Supabase.'); setLoading(false); return }
@@ -26,6 +26,14 @@ export default function Home(){
     const {data:sub}=supabase.auth.onAuthStateChange((_e,s)=>{ setSession(s); if(s) bootstrap(s.user); else {setProfile(null);setMembership(null);setLoading(false)} })
     return ()=>sub.subscription.unsubscribe()
   },[])
+
+  useEffect(()=>{
+    if(!supabase || !session?.user?.id) return
+    const ch=supabase.channel('notifications-'+session.user.id)
+      .on('postgres_changes',{event:'*',schema:'public',table:'notifications',filter:`user_id=eq.${session.user.id}`},()=>bootstrap(session.user))
+      .subscribe()
+    return()=>supabase.removeChannel(ch)
+  },[session?.user?.id])
 
   async function bootstrap(user){
     try{
@@ -37,13 +45,14 @@ export default function Home(){
       const {data:m}=await supabase.from('memberships').select('*, teams(*)').eq('user_id',user.id).eq('status','active').limit(1).maybeSingle(); setMembership(m)
       if(!m){ setLoading(false); return }
       const {data:w}=await supabase.from('workspaces').select('*').eq('id',m.workspace_id).single(); setWorkspace(w)
-      const [{data:ps},{data:ts},{data:ms},{data:ns}] = await Promise.all([
+      const [{data:ps},{data:ts},{data:ms},{data:ns},{data:np}] = await Promise.all([
         supabase.from('projects').select('*, teams(name,code), profiles!projects_lead_id_fkey(full_name,avatar_url)').eq('workspace_id',m.workspace_id).is('archived_at',null).order('created_at',{ascending:false}),
-        supabase.from('teams').select('*').eq('workspace_id',m.workspace_id).order('name'),
+        supabase.from('teams').select('*, lead:profiles!teams_lead_id_fkey(full_name,email,avatar_url)').eq('workspace_id',m.workspace_id).is('archived_at',null).order('name'),
         supabase.from('memberships').select('*, profiles(*), teams(*)').eq('workspace_id',m.workspace_id).eq('status','active'),
-        supabase.from('notifications').select('*').eq('user_id',user.id).order('created_at',{ascending:false}).limit(20)
+        supabase.from('notifications').select('*').eq('user_id',user.id).order('created_at',{ascending:false}).limit(30),
+        supabase.from('notification_preferences').select('*').eq('user_id',user.id).maybeSingle()
       ])
-      setProjects(ps||[]); setTeams(ts||[]); setMembers(ms||[]); setNotifications(ns||[])
+      setProjects(ps||[]); setTeams(ts||[]); setMembers(ms||[]); setNotifications(ns||[]); setNotificationPrefs(np||null)
       setLoading(false)
     }catch(e){ setError(e.message); setLoading(false) }
   }
@@ -65,15 +74,43 @@ export default function Home(){
     setProjectMembers(pm||[]); setTasks(t||[])
   }
 
-  async function createProject(){
-    if(!canCreateProject(membership)) return
-    const name=prompt('Tên Project'); if(!name) return
-    const team = teams.find(x=>x.id===membership.team_id) || teams[0]; if(!team) return alert('Chưa có Team')
-    const code = prompt('Mã Project (VD: ORT-K22)','PROJECT') || 'PROJECT'
-    const {data,error:e}=await supabase.from('projects').insert({workspace_id:membership.workspace_id,team_id:team.id,name,code:code.toUpperCase(),lead_id:session.user.id,created_by:session.user.id,status:'active',visibility:'team'}).select().single()
-    if(e) return alert(e.message)
-    await supabase.from('project_members').insert({project_id:data.id,user_id:session.user.id,role_in_project:'lead',can_create_task:true,can_assign_task:true,can_review_task:true,can_manage_members:true})
-    setProjects([data,...projects]); showToast('Đã tạo Project'); openProject(data)
+  async function createTeam(payload){
+    if(!canManageWorkspace(membership)) return {error:new Error('Chỉ Trưởng phòng được tạo Team')}
+    const {data,error:e}=await supabase.rpc('create_team_safe',{
+      p_name:payload.name, p_code:payload.code||null, p_description:payload.description||null, p_lead_id:payload.lead_id||null
+    })
+    if(e) return {error:e}
+    const id=data?.id||data
+    const {data:created,error:readError}=await supabase.from('teams').select('*, lead:profiles!teams_lead_id_fkey(full_name,email,avatar_url)').eq('id',id).single()
+    if(readError) return {error:readError}
+    setTeams(prev=>[created,...prev.filter(x=>x.id!==created.id)].sort((a,b)=>a.name.localeCompare(b.name)))
+    showToast('Đã tạo Team')
+    setTeamCreateOpen(false)
+    await bootstrap(session.user)
+    return {data:created}
+  }
+
+  async function createProject(payload){
+    if(!canCreateProject(membership)) return {error:new Error('Bạn chưa có quyền tạo Project')}
+    const {data,error:e}=await supabase.rpc('create_project_atomic',{
+      p_name:payload.name,
+      p_code:payload.code||null,
+      p_team_id:payload.team_id,
+      p_description:payload.description||null,
+      p_start_at:payload.start_at||null,
+      p_due_at:payload.due_at||null,
+      p_visibility:payload.visibility||'team',
+      p_require_task_review:payload.require_task_review!==false
+    })
+    if(e) return {error:e}
+    const id = data?.id || data
+    const {data:created,error:readError}=await supabase.from('projects').select('*, teams(name,code), profiles!projects_lead_id_fkey(full_name,avatar_url)').eq('id',id).single()
+    if(readError) return {error:readError}
+    setProjects(prev=>[created,...prev.filter(x=>x.id!==created.id)])
+    showToast('Đã tạo Project')
+    setProjectCreateOpen(false)
+    await openProject(created)
+    return {data:created}
   }
 
   const currentProjectMember = projectMembers.find(x=>x.user_id===session?.user?.id)
@@ -130,17 +167,21 @@ export default function Home(){
       <div className="userMini"><Avatar p={profile}/><div><b>{profile?.full_name||profile?.email}</b><small>{membership.role==='manager'?'Trưởng phòng':membership.role==='team_lead'?'Team Lead':'Member/CTV'}</small></div><button onClick={logout}>↪</button></div>
     </aside>
     <main className="main">
-      <header className="topbar"><div><b>{workspace?.name||'FPTU Work'}</b><span className="crumb"> / {view==='project'?project?.name:view}</span></div><div className="topActions"><button className="iconBtn" title="Thông báo">🔔{notifications.filter(n=>!n.is_read).length>0&&<em>{notifications.filter(n=>!n.is_read).length}</em>}</button><Avatar p={profile}/></div></header>
-      {view==='projects'&&<Projects projects={projects} onOpen={openProject} onCreate={createProject} canCreate={canCreateProject(membership)}/>} 
+      <header className="topbar"><div><b>{workspace?.name||'FPTU Work'}</b><span className="crumb"> / {view==='project'?project?.name:view}</span></div><div className="topActions"><button className="iconBtn" title="Thông báo" onClick={()=>setNotificationOpen(!notificationOpen)}>🔔{notifications.filter(n=>!n.is_read).length>0&&<em>{notifications.filter(n=>!n.is_read).length}</em>}</button><Avatar p={profile}/></div></header>
+      {view==='projects'&&<Projects projects={projects} onOpen={openProject} onCreate={()=>setProjectCreateOpen(true)} canCreate={canCreateProject(membership)}/>} 
       {view==='project'&&project&&<ProjectPage project={project} setProject={setProject} tab={projectTab} setTab={setProjectTab} stats={stats} progress={progress} tasks={filtered} search={search} setSearch={setSearch} quickTitle={quickTitle} setQuickTitle={setQuickTitle} quickCreateTask={quickCreateTask} canTask={canTask} members={projectMembers} openTask={setTaskDrawer} updateTask={updateTask} completeByCheckbox={completeByCheckbox} exportExcel={exportExcel} membership={membership} currentProjectMember={currentProjectMember}/>} 
       {view==='home'&&<HomeDashboard projects={projects} members={members}/>} 
       {view==='mytasks'&&<MyTasks membership={membership} onOpenProject={openProject}/>} 
-      {view==='teams'&&<Teams teams={teams} projects={projects}/>} 
-      {view==='members'&&canManageWorkspace(membership)&&<Members members={members} teams={teams} onOpen={setMemberDrawer}/>} 
+      {view==='teams'&&<Teams teams={teams} projects={projects} canCreate={canManageWorkspace(membership)} onCreate={()=>setTeamCreateOpen(true)}/>} 
+      {view==='members'&&canManageWorkspace(membership)&&<Members members={members} teams={teams} onOpen={setMemberDrawer} onInvite={()=>setInviteOpen(true)}/>} 
       {view==='reports'&&<Reports projects={projects} members={members}/>} 
     </main>
     {taskDrawer&&<TaskDrawer task={taskDrawer} project={project} projectMembers={projectMembers} membership={membership} currentProjectMember={currentProjectMember} onClose={()=>setTaskDrawer(null)} onUpdate={updateTask}/>} 
-    {memberDrawer&&<MemberDrawer item={memberDrawer} teams={teams} onClose={()=>setMemberDrawer(null)} onSaved={()=>bootstrap(session.user)}/>} 
+    {memberDrawer&&<MemberDrawer item={memberDrawer} teams={teams} members={members} onClose={()=>setMemberDrawer(null)} onSaved={()=>bootstrap(session.user)}/>} 
+    {projectCreateOpen&&<ProjectCreateDrawer teams={teams} membership={membership} onClose={()=>setProjectCreateOpen(false)} onCreate={createProject}/>}
+    {inviteOpen&&<InviteDrawer teams={teams} projects={projects} membership={membership} onClose={()=>setInviteOpen(false)} onCreated={()=>bootstrap(session.user)}/>}
+    {notificationOpen&&<NotificationPanel notifications={notifications} prefs={notificationPrefs} onClose={()=>setNotificationOpen(false)} onChanged={()=>bootstrap(session.user)} />}
+    {teamCreateOpen&&<TeamCreateDrawer members={members} onClose={()=>setTeamCreateOpen(false)} onCreate={createTeam}/>}
     {toast&&<div className="toast">✓ {toast}</div>}
   </div>
 }
@@ -179,13 +220,69 @@ function Field({label,children}){return <label className="field"><span>{label}</
 
 function HomeDashboard({projects,members}){return <section className="page"><div className="pageHead"><div><h1>Home</h1><p>Tổng quan workspace.</p></div></div><div className="statGrid"><Stat label="Projects" value={projects.length}/><Stat label="Active" value={projects.filter(p=>p.status==='active').length}/><Stat label="Members" value={members.length}/><Stat label="At risk" value={projects.filter(p=>p.health==='at_risk').length}/></div></section>}
 function MyTasks(){return <section className="page"><div className="pageHead"><div><h1>My Tasks</h1><p>Task của bạn từ tất cả Project sẽ được tổng hợp tại đây.</p></div></div><div className="panel empty">Dùng Project List/Kanban để quản lý chi tiết; My Tasks realtime sẽ dùng query theo assignee khi mở rộng.</div></section>}
-function Teams({teams,projects}){return <section className="page"><div className="pageHead"><div><h1>Teams</h1><p>Team, Project và workload.</p></div></div><div className="projectGrid">{teams.map(t=><article className="projectCard" key={t.id}><div className="projectIcon">{t.code.slice(0,2)}</div><h3>{t.name}</h3><p>{projects.filter(p=>p.team_id===t.id).length} Projects</p></article>)}</div></section>}
-function Members({members,onOpen}){return <section className="page"><div className="pageHead"><div><h1>Members & Permissions</h1><p>Trưởng phòng quản lý role, team và quyền mở rộng.</p></div></div><div className="panel memberTable">{members.map(m=><button className="memberRow" key={m.id} onClick={()=>onOpen(m)}><Avatar p={m.profiles}/><span><b>{m.profiles?.full_name||m.profiles?.email}</b><small>{m.profiles?.email}</small></span><span>{m.teams?.name||'—'}</span><span className="rolePill">{m.role}</span></button>)}</div></section>}
+function Teams({teams,projects,canCreate,onCreate}){return <section className="page"><div className="pageHead"><div><h1>Teams</h1><p>Team, Team Lead, Project và workload trong workspace.</p></div>{canCreate&&<button className="primary" onClick={onCreate}>＋ Tạo Team</button>}</div><div className="projectGrid">{teams.map(t=><article className="projectCard" key={t.id}><div className="projectIcon">{(t.code||'T').slice(0,2)}</div><div className="projectMeta"><span>{t.code}</span><span>{projects.filter(p=>p.team_id===t.id).length} Projects</span></div><h3>{t.name}</h3><p>{t.description||'Chưa có mô tả Team.'}</p><div className="projectFoot"><span>Lead: {t.lead?.full_name||'Chưa gán'}</span><span>{projects.filter(p=>p.team_id===t.id&&p.status==='active').length} active</span></div></article>)}{!teams.length&&<div className="empty">Chưa có Team nào.</div>}</div></section>}
+function Members({members,onOpen,onInvite}){return <section className="page"><div className="pageHead"><div><h1>Members & Permissions</h1><p>Trưởng phòng quản lý role, team, quyền mở rộng và link mời.</p></div><button className="primary" onClick={onInvite}>＋ Mời thành viên</button></div><div className="panel memberTable">{members.map(m=><button className="memberRow" key={m.id} onClick={()=>onOpen(m)}><Avatar p={m.profiles}/><span><b>{m.profiles?.full_name||m.profiles?.email}</b><small>{m.profiles?.email}</small></span><span>{m.teams?.name||'—'}</span><span className="rolePill">{m.role}</span></button>)}</div></section>}
 function Reports({projects,members}){return <section className="page"><div className="pageHead"><div><h1>Reports</h1><p>Report theo Project, Team, Member và deadline.</p></div></div><div className="statGrid"><Stat label="Projects" value={projects.length}/><Stat label="Members" value={members.length}/></div></section>}
 
-function MemberDrawer({item,teams,onClose,onSaved}){const [role,setRole]=useState(item.role),[teamId,setTeamId]=useState(item.team_id||''),[perms,setPerms]=useState({can_create_project:!!item.can_create_project,can_review_task:!!item.can_review_task,can_assign_outside_project:!!item.can_assign_outside_project,can_view_team_report:!!item.can_view_team_report})
- async function save(){ const {error}=await supabase.from('memberships').update({role,team_id:teamId||null,...perms}).eq('id',item.id); if(error)alert(error.message); else {onSaved();onClose()} }
- return <div className="drawerWrap"><aside className="drawer narrow"><div className="drawerHead"><h2>Member permissions</h2><button onClick={onClose}>×</button></div><div className="drawerBody"><div className="memberHero"><Avatar p={item.profiles} big/><h3>{item.profiles?.full_name}</h3><p>{item.profiles?.email}</p></div><Field label="Role"><select value={role} onChange={e=>setRole(e.target.value)}><option value="manager">Trưởng phòng</option><option value="team_lead">Team Lead</option><option value="member">Member/CTV</option></select></Field><Field label="Team"><select value={teamId} onChange={e=>setTeamId(e.target.value)}><option value="">—</option>{teams.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></Field><h3>Custom permissions</h3>{Object.keys(perms).map(k=><label className="toggleLine" key={k}><span>{k.replaceAll('_',' ')}</span><input type="checkbox" checked={perms[k]} onChange={e=>setPerms({...perms,[k]:e.target.checked})}/></label>)}<button className="primary full" onClick={save}>Lưu quyền</button></div></aside></div>}
+function MemberDrawer({item,teams,members,onClose,onSaved}){
+ const [role,setRole]=useState(item.role),[teamId,setTeamId]=useState(item.team_id||''),[perms,setPerms]=useState({can_create_project:!!item.can_create_project,can_review_task:!!item.can_review_task,can_assign_outside_project:!!item.can_assign_outside_project,can_view_team_report:!!item.can_view_team_report,can_archive_project:!!item.can_archive_project}),[saving,setSaving]=useState(false),[saved,setSaved]=useState(false),[reassignTo,setReassignTo]=useState(''),[removing,setRemoving]=useState(false)
+ async function save(){ setSaving(true);setSaved(false); const payload={role,team_id:teamId||null,...perms}; const {data,error}=await supabase.from('memberships').update(payload).eq('id',item.id).select('id,role,team_id,can_create_project,can_review_task,can_assign_outside_project,can_view_team_report,can_archive_project').single(); setSaving(false); if(error){alert('Không lưu được quyền: '+error.message);return} setSaved(true); await onSaved?.(data); setTimeout(()=>setSaved(false),1800) }
+ async function removeMember(){ const reason=window.prompt('Lý do remove khỏi workspace (tuỳ chọn):','Rời team / kết thúc cộng tác'); if(reason===null)return; if(!window.confirm(`Xóa quyền truy cập workspace của ${item.profiles?.full_name||item.profiles?.email}? Lịch sử task/comment vẫn được giữ.`))return; setRemoving(true); const {error}=await supabase.rpc('remove_workspace_member_safe',{p_membership_id:item.id,p_reason:reason||null,p_reassign_to:reassignTo||null}); setRemoving(false); if(error){alert(error.message);return} await onSaved?.(); onClose() }
+ return <div className="drawerWrap"><aside className="drawer narrow"><div className="drawerHead"><h2>Member permissions</h2><button onClick={onClose}>×</button></div><div className="drawerBody"><div className="memberHero"><Avatar p={item.profiles} big/><h3>{item.profiles?.full_name}</h3><p>{item.profiles?.email}</p></div><Field label="Role"><select value={role} onChange={e=>{setRole(e.target.value);setSaved(false)}}><option value="manager">Trưởng phòng</option><option value="team_lead">Team Lead</option><option value="member">Member/CTV</option></select></Field><Field label="Team"><select value={teamId} onChange={e=>{setTeamId(e.target.value);setSaved(false)}}><option value="">—</option>{teams.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></Field><h3>Custom permissions</h3>{Object.keys(perms).map(k=><label className="toggleLine" key={k}><span>{k.replaceAll('_',' ')}</span><input type="checkbox" checked={perms[k]} onChange={e=>{setPerms({...perms,[k]:e.target.checked});setSaved(false)}}/></label>)}<button className="primary full" disabled={saving} onClick={save}>{saving?'Đang lưu...':saved?'✓ Đã lưu':'Lưu quyền'}</button><section className="dangerZone"><h3>Rời / Remove workspace</h3><p>Không hard-delete user. Task, comment và activity cũ vẫn được giữ.</p><Field label="Bàn giao task active cho"><select value={reassignTo} onChange={e=>setReassignTo(e.target.value)}><option value="">Chưa chọn — chỉ remove nếu không còn task active</option>{members.filter(m=>m.id!==item.id&&m.status==='active').map(m=><option key={m.user_id} value={m.user_id}>{m.profiles?.full_name||m.profiles?.email}</option>)}</select></Field><button className="dangerButton full" disabled={removing} onClick={removeMember}>{removing?'Đang xử lý...':'Remove khỏi workspace'}</button></section></div></aside></div>
+}
+
+
+function NotificationPanel({notifications,prefs,onClose,onChanged}){
+  const [localPrefs,setLocalPrefs]=useState(prefs||{email_assigned:true,email_comment:false,email_review:true,email_mention:true,email_deadline:true,in_app_enabled:true})
+  const [saving,setSaving]=useState(false)
+  async function markRead(id){ await supabase.from('notifications').update({is_read:true}).eq('id',id); onChanged?.() }
+  async function markAll(){ const {data:{user}}=await supabase.auth.getUser(); if(!user)return; await supabase.from('notifications').update({is_read:true}).eq('user_id',user.id).eq('is_read',false); onChanged?.() }
+  async function savePrefs(){ const {data:{user}}=await supabase.auth.getUser(); if(!user)return; setSaving(true); const {error}=await supabase.from('notification_preferences').upsert({user_id:user.id,...localPrefs,updated_at:new Date().toISOString()}); setSaving(false); if(error) alert(error.message); else onChanged?.() }
+  return <div className="notificationPopover"><div className="notificationHead"><div><b>Thông báo</b><small>{notifications.filter(n=>!n.is_read).length} chưa đọc</small></div><div><button onClick={markAll}>Đánh dấu đã đọc</button><button onClick={onClose}>×</button></div></div><div className="notificationList">{notifications.map(n=><button key={n.id} className={'notificationItem '+(!n.is_read?'unread':'')} onClick={()=>markRead(n.id)}><span className="notifDot"/><span><b>{n.title}</b><small>{n.body}</small><em>{fmtDateTime(n.created_at)}</em></span></button>)}{!notifications.length&&<div className="empty">Chưa có thông báo.</div>}</div><details className="notifPrefs"><summary>Tuỳ chọn thông báo email</summary>{[['email_assigned','Khi được giao task'],['email_comment','Khi có comment'],['email_review','Khi có review / phản hồi'],['email_mention','Khi được @mention'],['email_deadline','Nhắc deadline']].map(([k,label])=><label className="toggleLine" key={k}><span>{label}</span><input type="checkbox" checked={!!localPrefs[k]} onChange={e=>setLocalPrefs({...localPrefs,[k]:e.target.checked})}/></label>)}<button className="primary full" disabled={saving} onClick={savePrefs}>{saving?'Đang lưu...':'Lưu tuỳ chọn'}</button></details></div>
+}
+
+function TeamCreateDrawer({members,onClose,onCreate}){
+  const [form,setForm]=useState({name:'',code:'',description:'',lead_id:''})
+  const [saving,setSaving]=useState(false),[error,setError]=useState('')
+  async function submit(){
+    if(!form.name.trim()) return setError('Vui lòng nhập tên Team')
+    setSaving(true);setError('')
+    const r=await onCreate({...form,name:form.name.trim(),code:form.code.trim().toUpperCase()})
+    setSaving(false); if(r?.error) setError(r.error.message||String(r.error))
+  }
+  return <div className="drawerWrap" onMouseDown={e=>e.target===e.currentTarget&&onClose()}><aside className="drawer narrow"><div className="drawerHead"><h2>Tạo Team mới</h2><button onClick={onClose}>×</button></div><div className="drawerBody"><Field label="Tên Team"><input className="fullInput" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder="VD: Production"/></Field><Field label="Mã Team"><input className="fullInput" value={form.code} onChange={e=>setForm({...form,code:e.target.value})} placeholder="VD: PROD; để trống hệ thống tự tạo"/></Field><Field label="Mô tả"><textarea rows="5" value={form.description} onChange={e=>setForm({...form,description:e.target.value})} placeholder="Vai trò, phạm vi công việc của Team..."/></Field><Field label="Team Lead (tuỳ chọn)"><select value={form.lead_id} onChange={e=>setForm({...form,lead_id:e.target.value})}><option value="">Chưa gán Team Lead</option>{members.map(m=><option key={m.user_id} value={m.user_id}>{m.profiles?.full_name||m.profiles?.email}</option>)}</select></Field><p className="helpText">Nếu chọn Team Lead, hệ thống sẽ gán người đó vào Team và nâng role thành Team Lead (trừ khi người đó là Trưởng phòng).</p>{error&&<div className="errorBox">{error}</div>}<button className="primary full" disabled={saving} onClick={submit}>{saving?'Đang tạo...':'Tạo Team'}</button></div></aside></div>
+}
+
+function ProjectCreateDrawer({teams,membership,onClose,onCreate}){
+  const defaultTeam=membership?.team_id || teams[0]?.id || ''
+  const [form,setForm]=useState({name:'',code:'',team_id:defaultTeam,description:'',start_at:'',due_at:'',visibility:'team',require_task_review:true})
+  const [saving,setSaving]=useState(false),[error,setError]=useState('')
+  async function submit(){
+    if(!form.name.trim()) return setError('Vui lòng nhập tên Project')
+    if(!form.team_id) return setError('Vui lòng chọn Team')
+    setSaving(true);setError('')
+    const r=await onCreate({...form,name:form.name.trim(),code:form.code.trim().toUpperCase(),start_at:form.start_at?new Date(form.start_at+'T08:00:00').toISOString():null,due_at:form.due_at?new Date(form.due_at+'T17:00:00').toISOString():null})
+    setSaving(false); if(r?.error) setError(r.error.message||String(r.error))
+  }
+  return <div className="drawerWrap" onMouseDown={e=>e.target===e.currentTarget&&onClose()}><aside className="drawer narrow"><div className="drawerHead"><h2>Tạo Project mới</h2><button onClick={onClose}>×</button></div><div className="drawerBody"><Field label="Tên Project"><input className="fullInput" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder="VD: ORT K22 2026"/></Field><Field label="Mã Project"><input className="fullInput" value={form.code} onChange={e=>setForm({...form,code:e.target.value})} placeholder="Để trống để hệ thống tự tạo"/></Field><Field label="Team"><select value={form.team_id} onChange={e=>setForm({...form,team_id:e.target.value})}>{teams.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></Field><Field label="Mô tả"><textarea rows="6" value={form.description} onChange={e=>setForm({...form,description:e.target.value})} placeholder="Mục tiêu, output, KPI..."/></Field><div className="fieldGrid"><Field label="Bắt đầu"><input type="date" value={form.start_at} onChange={e=>setForm({...form,start_at:e.target.value})}/></Field><Field label="Deadline"><input type="date" value={form.due_at} onChange={e=>setForm({...form,due_at:e.target.value})}/></Field></div><Field label="Visibility"><select value={form.visibility} onChange={e=>setForm({...form,visibility:e.target.value})}><option value="private">Private</option><option value="team">Team</option><option value="workspace">Workspace</option></select></Field><label className="toggleLine"><span>Require task review</span><input type="checkbox" checked={form.require_task_review} onChange={e=>setForm({...form,require_task_review:e.target.checked})}/></label>{error&&<div className="errorBox">{error}</div>}<button className="primary full" disabled={saving} onClick={submit}>{saving?'Đang tạo...':'Tạo Project'}</button></div></aside></div>
+}
+
+function InviteDrawer({teams,projects,membership,onClose,onCreated}){
+  const [form,setForm]=useState({team_id:membership?.team_id||teams[0]?.id||'',project_id:'',role:'member',max_uses:50,expires_days:30})
+  const [saving,setSaving]=useState(false),[error,setError]=useState(''),[link,setLink]=useState('')
+  async function create(){
+    setSaving(true);setError('');setLink('')
+    const expires = form.expires_days ? new Date(Date.now()+Number(form.expires_days)*86400000).toISOString() : null
+    const {data,error:e}=await supabase.rpc('create_invitation_safe',{p_team_id:form.team_id||null,p_project_id:form.project_id||null,p_role:form.role,p_expires_at:expires,p_max_uses:Number(form.max_uses)||null})
+    setSaving(false)
+    if(e) return setError(e.message)
+    const token=data?.token||data
+    const url=`${appUrl}/?invite=${encodeURIComponent(token)}`
+    setLink(url); onCreated?.()
+  }
+  async function copy(){try{await navigator.clipboard.writeText(link)}catch{} }
+  return <div className="drawerWrap" onMouseDown={e=>e.target===e.currentTarget&&onClose()}><aside className="drawer narrow"><div className="drawerHead"><h2>Mời thành viên</h2><button onClick={onClose}>×</button></div><div className="drawerBody"><p>Tạo 1 link và gửi cho nhiều người. Bất kỳ tài khoản Google nào cũng có thể đăng nhập; quyền được cấp theo link.</p><Field label="Team"><select value={form.team_id} onChange={e=>setForm({...form,team_id:e.target.value})}><option value="">Không gán Team</option>{teams.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></Field><Field label="Project (tuỳ chọn)"><select value={form.project_id} onChange={e=>setForm({...form,project_id:e.target.value})}><option value="">Chỉ vào Workspace/Team</option>{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></Field><Field label="Role mặc định"><select value={form.role} onChange={e=>setForm({...form,role:e.target.value})}><option value="member">Member/CTV</option><option value="team_lead">Team Lead</option></select></Field><div className="fieldGrid"><Field label="Số lượt dùng"><input type="number" min="1" value={form.max_uses} onChange={e=>setForm({...form,max_uses:e.target.value})}/></Field><Field label="Hết hạn sau (ngày)"><input type="number" min="1" value={form.expires_days} onChange={e=>setForm({...form,expires_days:e.target.value})}/></Field></div>{error&&<div className="errorBox">{error}</div>}{link?<><Field label="Invite link"><textarea readOnly rows="4" value={link}/></Field><button className="primary full" onClick={copy}>Copy link mời</button><button className="secondary full" onClick={create}>Tạo link mới</button></>:<button className="primary full" disabled={saving} onClick={create}>{saving?'Đang tạo...':'Tạo link mời'}</button>}</div></aside></div>
+}
 
 function ProjectFiles({project}){return <div className="panel"><h3>Files</h3><p>Khu vực file chung của Project. Có thể lưu Drive URL hoặc tích hợp Supabase Storage.</p><div className="empty">Chưa có file.</div></div>}
 function ProjectActivity({project}){const [rows,setRows]=useState([]);useEffect(()=>{supabase.from('project_activity_logs').select('*').eq('project_id',project.id).order('created_at',{ascending:false}).limit(100).then(({data})=>setRows(data||[]))},[project.id]);return <div className="panel"><h3>Project Activity</h3>{rows.length?rows.map(x=><div className="activityLine" key={x.id}><span>•</span><div>{x.action}<small>{fmtDateTime(x.created_at)}</small></div></div>):<div className="empty">Chưa có activity riêng của Project.</div>}</div>}
