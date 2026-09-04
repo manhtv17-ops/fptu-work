@@ -1,60 +1,42 @@
-# FPTU Work v7 — Project Management Workspace
+# FPTU Work v10
 
-Project-centric rewrite of FPTU Work.
+Project-centric workspace management for FPTU teams.
 
-## Core model
-Workspace → Team → Project → Task → Subtask / Comment / File / Activity.
+## v10 includes
 
-## What is implemented
-- Google/Supabase authentication and invite-token preservation.
-- Project list and Project creation for Manager / Team Lead / custom permission.
-- Project Overview, List, Kanban, Files, Activity and Report tabs.
-- Project description inline update.
-- Project members and per-project permission model.
-- Members are active contributors: create tasks, self-assign or assign to Project members.
-- Quick Add task (Enter to create).
-- Task drawer with editable description, assignee, deadline, status, progress and delivery link.
-- Task comments with author + timestamp + realtime refresh.
-- Task activity log.
-- Kanban drag/drop status changes.
-- Manager Members & Permissions screen.
-- Excel export per Project.
-- Responsive desktop/tablet/mobile UI.
+- Manager-only Team creation with optional Team Lead assignment.
+- Project creation through atomic Supabase RPC.
+- Invite links for Google accounts from any domain.
+- Member/Team Lead/Manager roles + custom permission overrides.
+- Member removal without hard-deleting audit history, with optional active-task reassignment.
+- In-app notification center with unread counter and realtime refresh.
+- Notification preferences per user.
+- Email queue for important task events.
+- Vercel Cron endpoint to deliver queued emails through Resend.
 
-## 1. Supabase
-Run:
+## Update order
 
-`supabase/upgrade_v7_project_workspace.sql`
-
-This is intended as an upgrade on top of the database already used by FPTU Work v5/v6.
-
-## 2. Vercel environment variables
+1. Run `supabase/upgrade_v10_workspace_admin.sql` in Supabase SQL Editor.
+2. Replace/upload the v10 source to GitHub.
+3. Add these Vercel environment variables:
 
 ```env
-NEXT_PUBLIC_SUPABASE_URL=...
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=...
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
 NEXT_PUBLIC_APP_URL=https://fptu-work.vercel.app
+SUPABASE_SERVICE_ROLE_KEY=
+RESEND_API_KEY=
+EMAIL_FROM=FPTU Work <work@yourdomain.com>
+CRON_SECRET=
 ```
 
-## 3. Deploy
-Replace the current GitHub repository contents with this source (keep your secrets only in Vercel), commit, and let Vercel deploy.
+`SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY` and `CRON_SECRET` are server-only secrets. Never expose them as `NEXT_PUBLIC_*` variables.
 
-## 4. Important production notes
-- Existing RLS remains the source of truth; v7 adds project-centric access functions and policies.
-- Members can create tasks inside projects they can access.
-- Assign dropdown is scoped to Project members.
-- Manager can grant workspace-level custom permissions.
-- The Files tab currently exposes the project-file area but the UI upload workflow is intentionally left minimal; schema is ready for Supabase Storage/URL integration.
-- Recurring rules remain in the existing backend schema; cron generation can continue using the prior recurring setup.
+4. Redeploy on Vercel.
+5. Test Team create, Project create, Invite, notifications and email queue.
 
-## Recommended smoke test
-1. Manager login.
-2. Promote one user to Team Lead and assign a Team.
-3. Team Lead creates Project.
-4. Add 2 Project members.
-5. Member creates Task and assigns another Project member.
-6. Edit description/deadline inline.
-7. Add comment and verify timestamp/activity.
-8. Drag task To-do → In Progress → Review.
-9. Review and complete.
-10. Export Project Excel.
+## Email behavior
+
+In-app notifications are created for assignment, deadline changes, review events, comments and project membership. Email is queued only for important events and respects each user's preferences.
+
+The cron endpoint `/api/cron/email` checks pending rows in `email_queue` and sends them via Resend every 10 minutes.

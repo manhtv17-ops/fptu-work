@@ -1,19 +1,9 @@
-# Deploy steps
+# Deploy steps — FPTU Work v10
 
-1. Supabase → SQL Editor → run `supabase/upgrade_v7_project_workspace.sql`.
-2. Verify the final result row says `FPTU Work v7 Project-centric upgrade completed`.
-3. Backup the current GitHub repository (optional: create a branch/tag `v6-backup`).
-4. Upload/replace the v7 source keeping this folder structure:
-   - `app/`
-   - `lib/`
-   - `supabase/`
-   - `package.json`
-   - `.env.example`
-5. Commit: `Upgrade to FPTU Work v7 project workspace`.
-6. Vercel will redeploy automatically.
-7. Environment Variables must already contain:
-   - NEXT_PUBLIC_SUPABASE_URL
-   - NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
-   - NEXT_PUBLIC_APP_URL=https://fptu-work.vercel.app
-8. Open production and Ctrl+F5.
-9. Test with Manager + Team Lead + Member accounts.
+1. Supabase > SQL Editor > run `supabase/upgrade_v10_workspace_admin.sql`.
+2. GitHub > replace `app/page.js`, `app/globals.css`, add `app/api/cron/email/route.js`, `vercel.json`, and keep existing `lib/` files.
+3. Vercel > Settings > Environment Variables > add server secrets for Supabase Service Role and Resend.
+4. Deploy.
+5. Test with 3 users: Manager, Team Lead, Member.
+6. Check `notifications` and `email_queue` tables in Supabase.
+7. Trigger `/api/cron/email` manually once or wait for Vercel Cron.
