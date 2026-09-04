@@ -1,6 +1,6 @@
 {
-  "name": "fpt-work-manager",
-  "version": "1.0.0",
+  "name": "fptu-work",
+  "version": "2.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -8,10 +8,10 @@
     "start": "next start"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.57.4",
     "next": "16.3.3",
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "xlsx": "0.18.5"
-  },
-  "devDependencies": {}
+  }
 }
