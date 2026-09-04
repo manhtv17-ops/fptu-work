@@ -1,513 +1,191 @@
-'use client';
+'use client'
+import { useEffect, useMemo, useState } from 'react'
+import * as XLSX from 'xlsx'
+import { supabase, appUrl } from '../lib/supabase'
+import { canCreateProject, canManageWorkspace, canCreateTask, canReviewTask } from '../lib/permissions'
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import * as XLSX from 'xlsx';
-import { getSupabase } from '../lib/supabase';
+const STATUS = ['todo','in_progress','review','done']
+const LABEL = { todo:'To-do', in_progress:'In Progress', review:'Review', done:'Done', planning:'Planning', active:'Active', on_hold:'On Hold', completed:'Completed', cancelled:'Cancelled', archived:'Archived' }
+const PRIORITY = { low:'Low', medium:'Medium', high:'High', urgent:'Urgent' }
 
-const STATUS = {
-  todo: { label: 'Cần làm', icon: '○' },
-  in_progress: { label: 'Đang làm', icon: '◐' },
-  review: { label: 'Chờ duyệt', icon: '◌' },
-  done: { label: 'Hoàn thành', icon: '✓' },
-  cancelled: { label: 'Đã hủy', icon: '×' },
-};
-const PRIORITY = { low: 'Thấp', medium: 'Trung bình', high: 'Cao', urgent: 'Khẩn cấp' };
-const ROLE = { manager: 'Trưởng phòng', team_lead: 'Team Lead', member: 'Nhân viên/CTV' };
-const KANBAN = ['todo', 'in_progress', 'review', 'done'];
+function fmtDate(v){ if(!v) return '—'; return new Intl.DateTimeFormat('vi-VN',{day:'2-digit',month:'2-digit',year:'numeric'}).format(new Date(v)) }
+function fmtDateTime(v){ if(!v) return ''; return new Intl.DateTimeFormat('vi-VN',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}).format(new Date(v)) }
+function initials(name=''){ return name.split(' ').slice(-2).map(x=>x[0]).join('').toUpperCase() || '?' }
 
-function viDate(value, withTime = false) {
-  if (!value) return '—';
-  return new Date(value).toLocaleString('vi-VN', withTime
-    ? { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }
-    : { day: '2-digit', month: '2-digit', year: 'numeric' });
-}
+export default function Home(){
+  const [session,setSession]=useState(null), [loading,setLoading]=useState(true), [error,setError]=useState('')
+  const [profile,setProfile]=useState(null), [membership,setMembership]=useState(null), [workspace,setWorkspace]=useState(null)
+  const [projects,setProjects]=useState([]), [project,setProject]=useState(null), [projectMembers,setProjectMembers]=useState([]), [tasks,setTasks]=useState([])
+  const [members,setMembers]=useState([]), [teams,setTeams]=useState([]), [view,setView]=useState('projects'), [projectTab,setProjectTab]=useState('overview')
+  const [taskDrawer,setTaskDrawer]=useState(null), [memberDrawer,setMemberDrawer]=useState(null), [search,setSearch]=useState(''), [quickTitle,setQuickTitle]=useState('')
+  const [toast,setToast]=useState(''), [notifications,setNotifications]=useState([])
 
-function dueLabel(task) {
-  if (!task.due_at) return 'Chưa có hạn';
-  if (task.status === 'done') return `Xong ${viDate(task.completed_at)}`;
-  const ms = new Date(task.due_at).getTime() - Date.now();
-  const days = Math.ceil(ms / 86400000);
-  if (days < 0) return `Trễ ${Math.abs(days)} ngày`;
-  if (days === 0) return 'Hôm nay';
-  if (days === 1) return 'Ngày mai';
-  return viDate(task.due_at);
-}
+  useEffect(()=>{
+    if(!supabase){ setError('Thiếu biến môi trường Supabase.'); setLoading(false); return }
+    supabase.auth.getSession().then(({data})=>{ setSession(data.session); if(data.session) bootstrap(data.session.user); else setLoading(false) })
+    const {data:sub}=supabase.auth.onAuthStateChange((_e,s)=>{ setSession(s); if(s) bootstrap(s.user); else {setProfile(null);setMembership(null);setLoading(false)} })
+    return ()=>sub.subscription.unsubscribe()
+  },[])
 
-function Avatar({ profile, size = 'normal' }) {
-  const name = profile?.full_name || profile?.email || '?';
-  if (profile?.avatar_url) return <img className={`avatar ${size}`} src={profile.avatar_url} alt={name} />;
-  return <span className={`avatar fallback ${size}`}>{name.slice(0, 1).toUpperCase()}</span>;
-}
+  async function bootstrap(user){
+    try{
+      setLoading(true); setError('')
+      const invite = new URLSearchParams(window.location.search).get('invite') || sessionStorage.getItem('fptu_invite')
+      if(invite) sessionStorage.setItem('fptu_invite', invite)
+      if(invite){ await supabase.rpc('accept_invitation',{p_token:invite}).catch(()=>{}) }
+      const {data:p}=await supabase.from('profiles').select('*').eq('id',user.id).single(); setProfile(p || {id:user.id,full_name:user.user_metadata?.full_name,email:user.email,avatar_url:user.user_metadata?.avatar_url})
+      const {data:m}=await supabase.from('memberships').select('*, teams(*)').eq('user_id',user.id).eq('status','active').limit(1).maybeSingle(); setMembership(m)
+      if(!m){ setLoading(false); return }
+      const {data:w}=await supabase.from('workspaces').select('*').eq('id',m.workspace_id).single(); setWorkspace(w)
+      const [{data:ps},{data:ts},{data:ms},{data:ns}] = await Promise.all([
+        supabase.from('projects').select('*, teams(name,code), profiles!projects_lead_id_fkey(full_name,avatar_url)').eq('workspace_id',m.workspace_id).is('archived_at',null).order('created_at',{ascending:false}),
+        supabase.from('teams').select('*').eq('workspace_id',m.workspace_id).order('name'),
+        supabase.from('memberships').select('*, profiles(*), teams(*)').eq('workspace_id',m.workspace_id).eq('status','active'),
+        supabase.from('notifications').select('*').eq('user_id',user.id).order('created_at',{ascending:false}).limit(20)
+      ])
+      setProjects(ps||[]); setTeams(ts||[]); setMembers(ms||[]); setNotifications(ns||[])
+      setLoading(false)
+    }catch(e){ setError(e.message); setLoading(false) }
+  }
 
-function LoginScreen({ onLogin, error }) {
-  return (
-    <main className="authShell">
-      <section className="authCard">
-        <div className="brandMark">F</div>
-        <h1>FPTU Work</h1>
-        <p>Giao việc, phối hợp, review và theo dõi tiến độ trong một nơi.</p>
-        {error ? <div className="errorBox">{error}</div> : null}
-        <button className="googleButton" onClick={onLogin}>
-          <span className="googleG">G</span> Tiếp tục với Google
-        </button>
-        <small>Bất kỳ tài khoản Google nào cũng có thể đăng nhập. Quyền dữ liệu được kiểm soát bằng workspace/invite.</small>
-      </section>
+  async function login(){
+    const invite = new URLSearchParams(window.location.search).get('invite')
+    if(invite) sessionStorage.setItem('fptu_invite',invite)
+    const redirectTo = invite ? `${appUrl}/?invite=${encodeURIComponent(invite)}` : appUrl
+    await supabase.auth.signInWithOAuth({provider:'google',options:{redirectTo}})
+  }
+  async function logout(){ await supabase.auth.signOut(); location.href='/' }
+
+  async function openProject(p){
+    setProject(p); setView('project'); setProjectTab('overview')
+    const [{data:pm},{data:t}] = await Promise.all([
+      supabase.from('project_members').select('*, profiles(*)').eq('project_id',p.id),
+      supabase.from('tasks').select('*, profiles!tasks_assignee_id_fkey(full_name,avatar_url,email), project:projects(name,code)').eq('project_id',p.id).is('archived_at',null).order('created_at',{ascending:false})
+    ])
+    setProjectMembers(pm||[]); setTasks(t||[])
+  }
+
+  async function createProject(){
+    if(!canCreateProject(membership)) return
+    const name=prompt('Tên Project'); if(!name) return
+    const team = teams.find(x=>x.id===membership.team_id) || teams[0]; if(!team) return alert('Chưa có Team')
+    const code = prompt('Mã Project (VD: ORT-K22)','PROJECT') || 'PROJECT'
+    const {data,error:e}=await supabase.from('projects').insert({workspace_id:membership.workspace_id,team_id:team.id,name,code:code.toUpperCase(),lead_id:session.user.id,created_by:session.user.id,status:'active',visibility:'team'}).select().single()
+    if(e) return alert(e.message)
+    await supabase.from('project_members').insert({project_id:data.id,user_id:session.user.id,role_in_project:'lead',can_create_task:true,can_assign_task:true,can_review_task:true,can_manage_members:true})
+    setProjects([data,...projects]); showToast('Đã tạo Project'); openProject(data)
+  }
+
+  const currentProjectMember = projectMembers.find(x=>x.user_id===session?.user?.id)
+  const canTask = project ? canCreateTask(membership,currentProjectMember) : false
+
+  async function quickCreateTask(){
+    const title=quickTitle.trim(); if(!title || !project || !canTask) return
+    const {data:code}=await supabase.rpc('next_task_code',{p_team_id:project.team_id})
+    const {data,error:e}=await supabase.from('tasks').insert({workspace_id:membership.workspace_id,project_id:project.id,team_id:project.team_id,code,title,status:'todo',priority:'medium',progress:0,assigner_id:session.user.id,assignee_id:session.user.id}).select('*, profiles!tasks_assignee_id_fkey(full_name,avatar_url,email)').single()
+    if(e) return alert(e.message)
+    setTasks([data,...tasks]); setQuickTitle(''); showToast('Đã thêm task')
+  }
+
+  async function updateTask(id, patch){
+    const old=tasks.find(t=>t.id===id); setTasks(tasks.map(t=>t.id===id?{...t,...patch}:t)); if(taskDrawer?.id===id) setTaskDrawer({...taskDrawer,...patch})
+    const {error:e}=await supabase.from('tasks').update(patch).eq('id',id)
+    if(e){ setTasks(tasks.map(t=>t.id===id?old:t)); alert(e.message) } else showToast('Đã lưu')
+  }
+
+  async function completeByCheckbox(t){
+    if(t.status==='done') return updateTask(t.id,{status:'in_progress',completed_at:null})
+    const requireReview=project?.require_task_review !== false
+    const next = requireReview && !canReviewTask(membership,currentProjectMember) ? 'review':'done'
+    await updateTask(t.id,{status:next,progress:next==='done'?100:t.progress,completed_at:next==='done'?new Date().toISOString():null})
+  }
+
+  function showToast(msg){ setToast(msg); setTimeout(()=>setToast(''),2200) }
+  const filtered = useMemo(()=>tasks.filter(t=>`${t.code} ${t.title} ${t.profiles?.full_name||''}`.toLowerCase().includes(search.toLowerCase())),[tasks,search])
+  const stats = useMemo(()=>({total:tasks.length,done:tasks.filter(x=>x.status==='done').length,review:tasks.filter(x=>x.status==='review').length,overdue:tasks.filter(x=>x.due_at&&new Date(x.due_at)<new Date()&&x.status!=='done').length}),[tasks])
+  const progress = stats.total ? Math.round(stats.done/stats.total*100):0
+
+  async function exportExcel(){
+    const rows=filtered.map(t=>({Project:project?.name,'Task code':t.code,'Task name':t.title,Assignee:t.profiles?.full_name||'',Status:LABEL[t.status]||t.status,Progress:t.progress,Priority:PRIORITY[t.priority]||t.priority,Deadline:t.due_at||'',Completed:t.completed_at||'',Description:t.description||'',Delivery:t.delivery_url||''}))
+    const ws=XLSX.utils.json_to_sheet(rows), wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Tasks'); XLSX.writeFile(wb,`${project?.code||'project'}-report.xlsx`)
+  }
+
+  if(loading) return <div className="center"><div className="spinner"/>Đang tải FPTU Work...</div>
+  if(error) return <div className="center errorBox">{error}</div>
+  if(!session) return <Login onLogin={login}/>
+  if(!membership) return <NoMembership profile={profile} onLogout={logout}/>
+
+  return <div className="appShell">
+    <aside className="sidebar">
+      <div className="brand"><div className="brandMark">F</div><div><b>FPTU Work</b><small>Project Workspace</small></div></div>
+      <nav>
+        <button className={view==='home'?'active':''} onClick={()=>setView('home')}>⌂ <span>Home</span></button>
+        <button className={view==='mytasks'?'active':''} onClick={()=>setView('mytasks')}>✓ <span>My Tasks</span></button>
+        <button className={view==='projects'||view==='project'?'active':''} onClick={()=>{setView('projects');setProject(null)}}>▦ <span>Projects</span></button>
+        <button className={view==='teams'?'active':''} onClick={()=>setView('teams')}>♟ <span>Teams</span></button>
+        {canManageWorkspace(membership)&&<button className={view==='members'?'active':''} onClick={()=>setView('members')}>♙ <span>Members</span></button>}
+        <button className={view==='reports'?'active':''} onClick={()=>setView('reports')}>▥ <span>Reports</span></button>
+      </nav>
+      <div className="sideProjects"><div className="sectionLabel">PROJECTS</div>{projects.slice(0,7).map(p=><button key={p.id} onClick={()=>openProject(p)}><i/> <span>{p.name}</span></button>)}</div>
+      <div className="userMini"><Avatar p={profile}/><div><b>{profile?.full_name||profile?.email}</b><small>{membership.role==='manager'?'Trưởng phòng':membership.role==='team_lead'?'Team Lead':'Member/CTV'}</small></div><button onClick={logout}>↪</button></div>
+    </aside>
+    <main className="main">
+      <header className="topbar"><div><b>{workspace?.name||'FPTU Work'}</b><span className="crumb"> / {view==='project'?project?.name:view}</span></div><div className="topActions"><button className="iconBtn" title="Thông báo">🔔{notifications.filter(n=>!n.is_read).length>0&&<em>{notifications.filter(n=>!n.is_read).length}</em>}</button><Avatar p={profile}/></div></header>
+      {view==='projects'&&<Projects projects={projects} onOpen={openProject} onCreate={createProject} canCreate={canCreateProject(membership)}/>} 
+      {view==='project'&&project&&<ProjectPage project={project} setProject={setProject} tab={projectTab} setTab={setProjectTab} stats={stats} progress={progress} tasks={filtered} search={search} setSearch={setSearch} quickTitle={quickTitle} setQuickTitle={setQuickTitle} quickCreateTask={quickCreateTask} canTask={canTask} members={projectMembers} openTask={setTaskDrawer} updateTask={updateTask} completeByCheckbox={completeByCheckbox} exportExcel={exportExcel} membership={membership} currentProjectMember={currentProjectMember}/>} 
+      {view==='home'&&<HomeDashboard projects={projects} members={members}/>} 
+      {view==='mytasks'&&<MyTasks membership={membership} onOpenProject={openProject}/>} 
+      {view==='teams'&&<Teams teams={teams} projects={projects}/>} 
+      {view==='members'&&canManageWorkspace(membership)&&<Members members={members} teams={teams} onOpen={setMemberDrawer}/>} 
+      {view==='reports'&&<Reports projects={projects} members={members}/>} 
     </main>
-  );
+    {taskDrawer&&<TaskDrawer task={taskDrawer} project={project} projectMembers={projectMembers} membership={membership} currentProjectMember={currentProjectMember} onClose={()=>setTaskDrawer(null)} onUpdate={updateTask}/>} 
+    {memberDrawer&&<MemberDrawer item={memberDrawer} teams={teams} onClose={()=>setMemberDrawer(null)} onSaved={()=>bootstrap(session.user)}/>} 
+    {toast&&<div className="toast">✓ {toast}</div>}
+  </div>
 }
 
-function AccessGate({ profile, onLogout, inviteError }) {
-  return (
-    <main className="authShell">
-      <section className="authCard">
-        <Avatar profile={profile} />
-        <h2>Chào {profile?.full_name || profile?.email}</h2>
-        <p>Bạn đã đăng nhập Google nhưng chưa thuộc workspace FPTU Work.</p>
-        {inviteError ? <div className="errorBox">{inviteError}</div> : null}
-        <p className="hint">Hãy mở đúng link mời do Trưởng phòng gửi. Link mời có dạng <b>https://fptu-work.vercel.app/?invite=...</b></p>
-        <button className="secondaryButton" onClick={onLogout}>Đăng xuất</button>
-      </section>
-    </main>
-  );
+function Login({onLogin}){ return <div className="loginPage"><div className="loginCard"><div className="loginLogo">F</div><h1>FPTU Work</h1><p>Project Management Workspace</p><button className="googleBtn" onClick={onLogin}><span>G</span> Tiếp tục với Google</button><small>Bất kỳ tài khoản Google nào cũng có thể đăng nhập. Quyền truy cập được kiểm soát bằng workspace/project membership.</small></div></div> }
+function NoMembership({profile,onLogout}){ return <div className="loginPage"><div className="loginCard"><Avatar p={profile} big/><h2>{profile?.full_name}</h2><p>Bạn đã đăng nhập nhưng chưa thuộc workspace. Hãy mở lại link mời từ Trưởng phòng/Team Lead.</p><button className="secondary" onClick={onLogout}>Đăng xuất</button></div></div> }
+function Avatar({p,big}){ return p?.avatar_url?<img className={big?'avatar big':'avatar'} src={p.avatar_url} alt=""/>:<div className={big?'avatar fallback big':'avatar fallback'}>{initials(p?.full_name||p?.email)}</div> }
+
+function Projects({projects,onOpen,onCreate,canCreate}){ return <section className="page"><div className="pageHead"><div><h1>Projects</h1><p>Quản lý toàn bộ chiến dịch và không gian phối hợp công việc.</p></div>{canCreate&&<button className="primary" onClick={onCreate}>＋ New Project</button>}</div><div className="projectGrid">{projects.map(p=><article className="projectCard" key={p.id} onClick={()=>onOpen(p)}><div className="projectIcon">{(p.code||'P').slice(0,2)}</div><div className="projectMeta"><span className={'pill '+p.status}>{LABEL[p.status]||p.status}</span><span>{p.teams?.name||''}</span></div><h3>{p.name}</h3><p>{p.description||'Chưa có mô tả. Click vào Project để bổ sung.'}</p><div className="projectFoot"><span>Lead: {p.profiles?.full_name||'—'}</span><span>{fmtDate(p.due_at)}</span></div></article>)}{!projects.length&&<div className="empty">Chưa có Project nào.</div>}</div></section> }
+
+function ProjectPage({project,setProject,tab,setTab,stats,progress,tasks,search,setSearch,quickTitle,setQuickTitle,quickCreateTask,canTask,members,openTask,updateTask,completeByCheckbox,exportExcel,membership,currentProjectMember}){
+  async function saveDescription(){ const v=prompt('Mô tả Project',project.description||''); if(v===null)return; const {error}=await supabase.from('projects').update({description:v}).eq('id',project.id); if(!error) setProject({...project,description:v}) }
+  return <section className="page projectPage"><div className="projectHeader"><div className="projectIcon large">{(project.code||'P').slice(0,2)}</div><div className="grow"><div className="eyebrow">{project.code} · {project.teams?.name||''}</div><h1>{project.name}</h1><div className="desc" onClick={saveDescription}>{project.description||'+ Thêm mô tả Project'}</div></div><span className={'pill '+project.status}>{LABEL[project.status]||project.status}</span></div>
+  <div className="tabs">{['overview','list','kanban','files','activity','report'].map(x=><button className={tab===x?'active':''} onClick={()=>setTab(x)} key={x}>{x[0].toUpperCase()+x.slice(1)}</button>)}</div>
+  {tab==='overview'&&<><div className="statGrid"><Stat label="Progress" value={`${progress}%`}/><Stat label="Total tasks" value={stats.total}/><Stat label="Review" value={stats.review}/><Stat label="Overdue" value={stats.overdue} danger/></div><div className="overviewGrid"><div className="panel"><h3>Project overview</h3><Info label="Team" value={project.teams?.name||'—'}/><Info label="Bắt đầu" value={fmtDate(project.start_at)}/><Info label="Deadline" value={fmtDate(project.due_at)}/><Info label="Visibility" value={project.visibility||'team'}/><Info label="Require review" value={project.require_task_review===false?'Off':'On'}/></div><div className="panel"><h3>Members</h3>{members.map(m=><div className="memberLine" key={m.user_id}><Avatar p={m.profiles}/><span>{m.profiles?.full_name||m.profiles?.email}</span><small>{m.role_in_project}</small></div>)}</div></div></>}
+  {tab==='list'&&<TaskList tasks={tasks} search={search} setSearch={setSearch} quickTitle={quickTitle} setQuickTitle={setQuickTitle} quickCreateTask={quickCreateTask} canTask={canTask} openTask={openTask} completeByCheckbox={completeByCheckbox} updateTask={updateTask} members={members}/>} 
+  {tab==='kanban'&&<Kanban tasks={tasks} openTask={openTask} updateTask={updateTask}/>} 
+  {tab==='files'&&<ProjectFiles project={project}/>} 
+  {tab==='activity'&&<ProjectActivity project={project}/>} 
+  {tab==='report'&&<div className="panel reportPanel"><h3>Project Report</h3><p>Xuất task hiện tại của Project ra Excel.</p><button className="primary" onClick={exportExcel}>Export Excel</button></div>}
+  </section>
 }
+function Stat({label,value,danger}){return <div className={'stat '+(danger?'danger':'')}><span>{label}</span><b>{value}</b></div>}
+function Info({label,value}){return <div className="infoRow"><span>{label}</span><b>{value}</b></div>}
 
-export default function Home() {
-  const supabase = useMemo(() => getSupabase(), []);
-  const [loading, setLoading] = useState(true);
-  const [authError, setAuthError] = useState('');
-  const [session, setSession] = useState(null);
-  const [profile, setProfile] = useState(null);
-  const [membership, setMembership] = useState(null);
-  const [workspace, setWorkspace] = useState(null);
-  const [teams, setTeams] = useState([]);
-  const [members, setMembers] = useState([]);
-  const [projects, setProjects] = useState([]);
-  const [tasks, setTasks] = useState([]);
-  const [notifications, setNotifications] = useState([]);
-  const [query, setQuery] = useState('');
-  const [scope, setScope] = useState('all');
-  const [view, setView] = useState('list');
-  const [selectedId, setSelectedId] = useState(null);
-  const [comments, setComments] = useState([]);
-  const [activity, setActivity] = useState([]);
-  const [commentDraft, setCommentDraft] = useState('');
-  const [quickTitle, setQuickTitle] = useState('');
-  const [quickTeam, setQuickTeam] = useState('');
-  const [quickAssignee, setQuickAssignee] = useState('');
-  const [quickDue, setQuickDue] = useState('');
-  const [toast, setToast] = useState('');
-  const [invitePanel, setInvitePanel] = useState(false);
-  const [invites, setInvites] = useState([]);
-  const [inviteError, setInviteError] = useState('');
+function TaskList({tasks,search,setSearch,quickTitle,setQuickTitle,quickCreateTask,canTask,openTask,completeByCheckbox,updateTask,members}){ return <div className="panel taskPanel"><div className="taskToolbar"><input placeholder="Search task..." value={search} onChange={e=>setSearch(e.target.value)}/><div className="chips"><button>My tasks</button><button>Overdue</button><button>Review</button></div></div><div className="taskHeader"><span></span><span>Task</span><span>Assignee</span><span>Deadline</span><span>Priority</span><span>Status</span></div>{tasks.map(t=><div className="taskRow" key={t.id}><button className={'check '+(t.status==='done'?'done':'')} onClick={()=>completeByCheckbox(t)}>{t.status==='done'?'✓':''}</button><button className="taskTitle" onClick={()=>openTask(t)}><b>{t.title}</b><small>{t.code}</small></button><select value={t.assignee_id||''} onChange={e=>updateTask(t.id,{assignee_id:e.target.value||null})}><option value="">—</option>{members.map(m=><option key={m.user_id} value={m.user_id}>{m.profiles?.full_name||m.profiles?.email}</option>)}</select><input type="date" value={t.due_at?t.due_at.slice(0,10):''} onChange={e=>updateTask(t.id,{due_at:e.target.value?new Date(e.target.value+'T17:00:00').toISOString():null})}/><select value={t.priority} onChange={e=>updateTask(t.id,{priority:e.target.value})}>{Object.keys(PRIORITY).map(x=><option key={x} value={x}>{PRIORITY[x]}</option>)}</select><span className={'statusBadge '+t.status}>{LABEL[t.status]}</span></div>)}{canTask&&<div className="quickAdd"><span>＋</span><input placeholder="Thêm task và nhấn Enter..." value={quickTitle} onChange={e=>setQuickTitle(e.target.value)} onKeyDown={e=>e.key==='Enter'&&quickCreateTask()}/></div>}</div> }
 
-  const role = membership?.role;
-  const canManage = role === 'manager' || role === 'team_lead';
-  const isManager = role === 'manager';
+function Kanban({tasks,openTask,updateTask}){ return <div className="kanban">{STATUS.map(s=><div className="kanbanCol" key={s} onDragOver={e=>e.preventDefault()} onDrop={e=>{const id=e.dataTransfer.getData('task'); if(id) updateTask(id,{status:s,completed_at:s==='done'?new Date().toISOString():null})}}><div className="kanbanHead"><b>{LABEL[s]}</b><span>{tasks.filter(t=>t.status===s).length}</span></div>{tasks.filter(t=>t.status===s).map(t=><div draggable onDragStart={e=>e.dataTransfer.setData('task',t.id)} className="kanbanCard" key={t.id} onDoubleClick={()=>openTask(t)}><small>{t.code}</small><b>{t.title}</b><div><span className={'priority '+t.priority}>{PRIORITY[t.priority]}</span><span>{fmtDate(t.due_at)}</span></div></div>)}</div>)}</div> }
 
-  const flash = useCallback((msg) => {
-    setToast(msg);
-    window.setTimeout(() => setToast(''), 2600);
-  }, []);
+function TaskDrawer({task,project,projectMembers,membership,currentProjectMember,onClose,onUpdate}){ const [comments,setComments]=useState([]),[activity,setActivity]=useState([]),[comment,setComment]=useState('')
+  useEffect(()=>{ load(); const ch=supabase.channel('task-'+task.id).on('postgres_changes',{event:'*',schema:'public',table:'task_comments',filter:`task_id=eq.${task.id}`},load).subscribe(); return()=>supabase.removeChannel(ch)},[task.id])
+  async function load(){ const [{data:c},{data:a}]=await Promise.all([supabase.from('task_comments').select('*, profiles(*)').eq('task_id',task.id).is('deleted_at',null).order('created_at'),supabase.from('task_activity_logs').select('*, profiles(*)').eq('task_id',task.id).order('created_at',{ascending:false}).limit(50)]); setComments(c||[]);setActivity(a||[]) }
+  async function addComment(){ if(!comment.trim())return; await supabase.from('task_comments').insert({task_id:task.id,user_id:(await supabase.auth.getUser()).data.user.id,content:comment.trim()}); setComment(''); load() }
+  return <div className="drawerWrap" onMouseDown={e=>e.target===e.currentTarget&&onClose()}><aside className="drawer"><div className="drawerHead"><div><small>{task.code}</small><input className="drawerTitle" value={task.title} onChange={e=>onUpdate(task.id,{title:e.target.value})}/></div><button onClick={onClose}>×</button></div><div className="drawerBody"><div className="fieldGrid"><Field label="Status"><select value={task.status} onChange={e=>onUpdate(task.id,{status:e.target.value})}>{STATUS.map(x=><option key={x} value={x}>{LABEL[x]}</option>)}</select></Field><Field label="Assignee"><select value={task.assignee_id||''} onChange={e=>onUpdate(task.id,{assignee_id:e.target.value||null})}><option value="">—</option>{projectMembers.map(m=><option key={m.user_id} value={m.user_id}>{m.profiles?.full_name||m.profiles?.email}</option>)}</select></Field><Field label="Deadline"><input type="date" value={task.due_at?task.due_at.slice(0,10):''} onChange={e=>onUpdate(task.id,{due_at:e.target.value?new Date(e.target.value+'T17:00:00').toISOString():null})}/></Field><Field label="Progress"><input type="number" min="0" max="100" value={task.progress||0} onChange={e=>onUpdate(task.id,{progress:+e.target.value})}/></Field></div><section><h3>Mô tả</h3><textarea rows="7" placeholder="+ Thêm mô tả task..." value={task.description||''} onChange={e=>onUpdate(task.id,{description:e.target.value})}/></section><section><h3>Delivery link</h3><input className="fullInput" placeholder="https://..." value={task.delivery_url||''} onChange={e=>onUpdate(task.id,{delivery_url:e.target.value})}/></section><section><h3>Comments</h3><div className="comments">{comments.map(c=><div className="comment" key={c.id}><Avatar p={c.profiles}/><div><div className="commentMeta"><b>{c.profiles?.full_name||c.profiles?.email}</b><span>{fmtDateTime(c.created_at)}</span>{c.updated_at&&<em>Edited</em>}</div><p>{c.content}</p></div></div>)}</div><div className="commentBox"><textarea placeholder="Viết bình luận... @mention" value={comment} onChange={e=>setComment(e.target.value)} onKeyDown={e=>{if((e.ctrlKey||e.metaKey)&&e.key==='Enter')addComment()}}/><button className="primary" onClick={addComment}>Gửi</button></div></section><section><h3>Activity</h3>{activity.map(a=><div className="activityLine" key={a.id}><span>•</span><div><b>{a.profiles?.full_name||'System'}</b> {a.action.replaceAll('_',' ')}<small>{fmtDateTime(a.created_at)}</small></div></div>)}</section></div></aside></div> }
+function Field({label,children}){return <label className="field"><span>{label}</span>{children}</label>}
 
-  const loadMembership = useCallback(async (userId) => {
-    const { data, error } = await supabase
-      .from('memberships')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('status', 'active')
-      .limit(1)
-      .maybeSingle();
-    if (error) throw error;
-    setMembership(data || null);
-    return data || null;
-  }, [supabase]);
+function HomeDashboard({projects,members}){return <section className="page"><div className="pageHead"><div><h1>Home</h1><p>Tổng quan workspace.</p></div></div><div className="statGrid"><Stat label="Projects" value={projects.length}/><Stat label="Active" value={projects.filter(p=>p.status==='active').length}/><Stat label="Members" value={members.length}/><Stat label="At risk" value={projects.filter(p=>p.health==='at_risk').length}/></div></section>}
+function MyTasks(){return <section className="page"><div className="pageHead"><div><h1>My Tasks</h1><p>Task của bạn từ tất cả Project sẽ được tổng hợp tại đây.</p></div></div><div className="panel empty">Dùng Project List/Kanban để quản lý chi tiết; My Tasks realtime sẽ dùng query theo assignee khi mở rộng.</div></section>}
+function Teams({teams,projects}){return <section className="page"><div className="pageHead"><div><h1>Teams</h1><p>Team, Project và workload.</p></div></div><div className="projectGrid">{teams.map(t=><article className="projectCard" key={t.id}><div className="projectIcon">{t.code.slice(0,2)}</div><h3>{t.name}</h3><p>{projects.filter(p=>p.team_id===t.id).length} Projects</p></article>)}</div></section>}
+function Members({members,onOpen}){return <section className="page"><div className="pageHead"><div><h1>Members & Permissions</h1><p>Trưởng phòng quản lý role, team và quyền mở rộng.</p></div></div><div className="panel memberTable">{members.map(m=><button className="memberRow" key={m.id} onClick={()=>onOpen(m)}><Avatar p={m.profiles}/><span><b>{m.profiles?.full_name||m.profiles?.email}</b><small>{m.profiles?.email}</small></span><span>{m.teams?.name||'—'}</span><span className="rolePill">{m.role}</span></button>)}</div></section>}
+function Reports({projects,members}){return <section className="page"><div className="pageHead"><div><h1>Reports</h1><p>Report theo Project, Team, Member và deadline.</p></div></div><div className="statGrid"><Stat label="Projects" value={projects.length}/><Stat label="Members" value={members.length}/></div></section>}
 
-  const loadWorkspaceData = useCallback(async (m) => {
-    if (!m) return;
-    const [w, t, mem, p, taskRes, n] = await Promise.all([
-      supabase.from('workspaces').select('*').eq('id', m.workspace_id).single(),
-      supabase.from('teams').select('*').eq('workspace_id', m.workspace_id).order('name'),
-      supabase.from('memberships').select('*').eq('workspace_id', m.workspace_id).eq('status', 'active'),
-      supabase.from('projects').select('*').eq('workspace_id', m.workspace_id).order('created_at'),
-      supabase.from('tasks').select('*').eq('workspace_id', m.workspace_id).is('archived_at', null).order('created_at', { ascending: false }),
-      supabase.from('notifications').select('*').order('created_at', { ascending: false }).limit(30),
-    ]);
-    if (w.error) throw w.error;
-    if (t.error) throw t.error;
-    if (mem.error) throw mem.error;
-    if (p.error) throw p.error;
-    if (taskRes.error) throw taskRes.error;
-    setWorkspace(w.data);
-    setTeams(t.data || []);
-    setProjects(p.data || []);
-    setTasks(taskRes.data || []);
-    setNotifications(n.data || []);
+function MemberDrawer({item,teams,onClose,onSaved}){const [role,setRole]=useState(item.role),[teamId,setTeamId]=useState(item.team_id||''),[perms,setPerms]=useState({can_create_project:!!item.can_create_project,can_review_task:!!item.can_review_task,can_assign_outside_project:!!item.can_assign_outside_project,can_view_team_report:!!item.can_view_team_report})
+ async function save(){ const {error}=await supabase.from('memberships').update({role,team_id:teamId||null,...perms}).eq('id',item.id); if(error)alert(error.message); else {onSaved();onClose()} }
+ return <div className="drawerWrap"><aside className="drawer narrow"><div className="drawerHead"><h2>Member permissions</h2><button onClick={onClose}>×</button></div><div className="drawerBody"><div className="memberHero"><Avatar p={item.profiles} big/><h3>{item.profiles?.full_name}</h3><p>{item.profiles?.email}</p></div><Field label="Role"><select value={role} onChange={e=>setRole(e.target.value)}><option value="manager">Trưởng phòng</option><option value="team_lead">Team Lead</option><option value="member">Member/CTV</option></select></Field><Field label="Team"><select value={teamId} onChange={e=>setTeamId(e.target.value)}><option value="">—</option>{teams.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></Field><h3>Custom permissions</h3>{Object.keys(perms).map(k=><label className="toggleLine" key={k}><span>{k.replaceAll('_',' ')}</span><input type="checkbox" checked={perms[k]} onChange={e=>setPerms({...perms,[k]:e.target.checked})}/></label>)}<button className="primary full" onClick={save}>Lưu quyền</button></div></aside></div>}
 
-    const ids = [...new Set((mem.data || []).map(x => x.user_id))];
-    const { data: profiles } = ids.length
-      ? await supabase.from('profiles').select('*').in('id', ids)
-      : { data: [] };
-    const pMap = Object.fromEntries((profiles || []).map(x => [x.id, x]));
-    setMembers((mem.data || []).map(x => ({ ...x, profile: pMap[x.user_id] || null })));
-
-    if (!quickTeam) setQuickTeam(m.team_id || t.data?.[0]?.id || '');
-    if (!quickAssignee) setQuickAssignee(m.user_id);
-  }, [supabase, quickTeam, quickAssignee]);
-
-  const boot = useCallback(async () => {
-    if (!supabase) {
-      setAuthError('Thiếu biến môi trường Supabase trên Vercel.');
-      setLoading(false);
-      return;
-    }
-    try {
-      const { data: { session: current } } = await supabase.auth.getSession();
-      setSession(current);
-      if (!current?.user) { setLoading(false); return; }
-
-      const { data: me } = await supabase.from('profiles').select('*').eq('id', current.user.id).maybeSingle();
-      setProfile(me || { id: current.user.id, email: current.user.email, full_name: current.user.user_metadata?.full_name });
-
-      let m = await loadMembership(current.user.id);
-      const invite = new URLSearchParams(window.location.search).get('invite');
-      if (!m && invite) {
-        const { error } = await supabase.rpc('accept_invitation', { p_token: invite });
-        if (error) setInviteError(error.message);
-        else {
-          window.history.replaceState({}, '', window.location.pathname);
-          m = await loadMembership(current.user.id);
-        }
-      }
-      if (!m) {
-        const { data: result } = await supabase.rpc('bootstrap_first_manager');
-        if (result?.bootstrapped) m = await loadMembership(current.user.id);
-      }
-      if (m) await loadWorkspaceData(m);
-    } catch (e) {
-      setAuthError(e.message || 'Không thể khởi tạo ứng dụng.');
-    } finally {
-      setLoading(false);
-    }
-  }, [supabase, loadMembership, loadWorkspaceData]);
-
-  useEffect(() => {
-    boot();
-    if (!supabase) return;
-    const { data } = supabase.auth.onAuthStateChange((_event, next) => setSession(next));
-    return () => data.subscription.unsubscribe();
-  }, [boot, supabase]);
-
-  useEffect(() => {
-    if (!supabase || !membership) return;
-    const channel = supabase.channel('fptu-work-live')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => loadWorkspaceData(membership))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => loadWorkspaceData(membership))
-      .subscribe();
-    return () => supabase.removeChannel(channel);
-  }, [supabase, membership, loadWorkspaceData]);
-
-  async function login() {
-    setAuthError('');
-    const redirectTo = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
-    const { error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo } });
-    if (error) setAuthError(error.message);
-  }
-
-  async function logout() {
-    await supabase.auth.signOut();
-    window.location.href = '/';
-  }
-
-  const profileMap = useMemo(() => Object.fromEntries(members.map(m => [m.user_id, m.profile])), [members]);
-  const teamMap = useMemo(() => Object.fromEntries(teams.map(t => [t.id, t])), [teams]);
-  const projectMap = useMemo(() => Object.fromEntries(projects.map(p => [p.id, p])), [projects]);
-
-  const visibleTasks = useMemo(() => tasks.filter(t => {
-    const q = query.trim().toLowerCase();
-    const assignee = profileMap[t.assignee_id]?.full_name || profileMap[t.assignee_id]?.email || '';
-    const text = `${t.code} ${t.title} ${teamMap[t.team_id]?.name || ''} ${assignee}`.toLowerCase();
-    if (q && !text.includes(q)) return false;
-    if (scope === 'mine' && t.assignee_id !== session?.user?.id) return false;
-    if (scope === 'assigned' && t.assigner_id !== session?.user?.id) return false;
-    if (scope === 'review' && t.status !== 'review') return false;
-    if (scope === 'overdue' && (!t.due_at || ['done', 'cancelled'].includes(t.status) || new Date(t.due_at) >= new Date())) return false;
-    return true;
-  }), [tasks, query, scope, profileMap, teamMap, session]);
-
-  const selected = tasks.find(t => t.id === selectedId) || null;
-
-  async function openTask(task) {
-    setSelectedId(task.id);
-    const [c, a] = await Promise.all([
-      supabase.from('task_comments').select('*').eq('task_id', task.id).is('deleted_at', null).order('created_at'),
-      supabase.from('task_activity_logs').select('*').eq('task_id', task.id).order('created_at', { ascending: false }).limit(50),
-    ]);
-    setComments(c.data || []);
-    setActivity(a.data || []);
-  }
-
-  async function updateTask(task, patch, message = 'Đã cập nhật') {
-    const old = { ...task };
-    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, ...patch } : t));
-    const { error } = await supabase.from('tasks').update(patch).eq('id', task.id);
-    if (error) {
-      setTasks(prev => prev.map(t => t.id === task.id ? old : t));
-      flash(`Không thể cập nhật: ${error.message}`);
-      return false;
-    }
-    flash(message);
-    return true;
-  }
-
-  async function tickTask(task) {
-    if (task.status === 'done') {
-      if (!canManage) return flash('Bạn không có quyền mở lại task đã duyệt');
-      return updateTask(task, { status: 'in_progress', progress: Math.min(task.progress || 90, 90), completed_at: null }, 'Đã mở lại task');
-    }
-    if (role === 'member') {
-      return updateTask(task, { status: 'review', progress: 100, accepted_at: task.accepted_at || new Date().toISOString() }, 'Đã gửi duyệt');
-    }
-    return updateTask(task, { status: 'done', progress: 100, completed_at: new Date().toISOString() }, 'Đã hoàn thành');
-  }
-
-  async function createTask(e) {
-    e.preventDefault();
-    const title = quickTitle.trim();
-    if (!title || !canManage) return;
-    const teamId = quickTeam || membership.team_id || teams[0]?.id;
-    if (!teamId) return flash('Chưa có team');
-    const { data: code, error: codeError } = await supabase.rpc('next_task_code', { p_team_id: teamId });
-    if (codeError) return flash(codeError.message);
-    const assignee = quickAssignee || session.user.id;
-    const { error } = await supabase.from('tasks').insert({
-      workspace_id: membership.workspace_id,
-      team_id: teamId,
-      code,
-      title,
-      assigner_id: session.user.id,
-      assignee_id: assignee,
-      due_at: quickDue ? new Date(`${quickDue}T17:00:00`).toISOString() : null,
-      priority: 'medium',
-    });
-    if (error) return flash(error.message);
-    setQuickTitle(''); setQuickDue(''); flash(`Đã tạo ${code}`);
-    await loadWorkspaceData(membership);
-  }
-
-  async function addComment(e) {
-    e.preventDefault();
-    if (!selected || !commentDraft.trim()) return;
-    const { error } = await supabase.from('task_comments').insert({
-      task_id: selected.id,
-      user_id: session.user.id,
-      content: commentDraft.trim(),
-    });
-    if (error) return flash(error.message);
-    setCommentDraft('');
-    await openTask(selected);
-    flash('Đã bình luận');
-  }
-
-  async function editComment(c) {
-    if (c.user_id !== session.user.id) return;
-    const next = window.prompt('Chỉnh sửa bình luận', c.content);
-    if (!next?.trim()) return;
-    const { error } = await supabase.from('task_comments').update({ content: next.trim(), updated_at: new Date().toISOString() }).eq('id', c.id);
-    if (error) return flash(error.message);
-    await openTask(selected);
-  }
-
-  async function deleteComment(c) {
-    if (c.user_id !== session.user.id) return;
-    const { error } = await supabase.from('task_comments').update({ deleted_at: new Date().toISOString() }).eq('id', c.id);
-    if (error) return flash(error.message);
-    await openTask(selected);
-  }
-
-  async function createInvite() {
-    if (!isManager) return;
-    const teamId = membership.team_id || teams[0]?.id || null;
-    const expires = new Date(); expires.setDate(expires.getDate() + 14);
-    const { data, error } = await supabase.from('invitations').insert({
-      workspace_id: membership.workspace_id,
-      team_id: teamId,
-      role: 'member',
-      expires_at: expires.toISOString(),
-      max_uses: 50,
-      created_by: session.user.id,
-    }).select().single();
-    if (error) return flash(error.message);
-    const url = `${process.env.NEXT_PUBLIC_APP_URL || window.location.origin}/?invite=${data.token}`;
-    await navigator.clipboard.writeText(url);
-    flash('Đã tạo và copy link mời');
-    loadInvites();
-  }
-
-  async function loadInvites() {
-    if (!isManager) return;
-    const { data } = await supabase.from('invitations').select('*').eq('workspace_id', membership.workspace_id).order('created_at', { ascending: false });
-    setInvites(data || []);
-  }
-
-  async function toggleInvitePanel() {
-    const next = !invitePanel; setInvitePanel(next);
-    if (next) await loadInvites();
-  }
-
-  async function revokeInvite(inv) {
-    await supabase.from('invitations').update({ revoked_at: new Date().toISOString() }).eq('id', inv.id);
-    loadInvites(); flash('Đã thu hồi link');
-  }
-
-  async function markNotificationsRead() {
-    const unread = notifications.filter(n => !n.is_read).map(n => n.id);
-    if (!unread.length) return;
-    await supabase.from('notifications').update({ is_read: true }).in('id', unread);
-    setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
-  }
-
-  function exportExcel() {
-    const rows = visibleTasks.map(t => ({
-      'Mã task': t.code,
-      'Công việc': t.title,
-      'Team': teamMap[t.team_id]?.name || '',
-      'Dự án': projectMap[t.project_id]?.name || '',
-      'Người giao': profileMap[t.assigner_id]?.full_name || profileMap[t.assigner_id]?.email || '',
-      'Người thực hiện': profileMap[t.assignee_id]?.full_name || profileMap[t.assignee_id]?.email || '',
-      'Ngày tạo': viDate(t.created_at, true),
-      'Ngày xác nhận': viDate(t.accepted_at, true),
-      'Deadline': viDate(t.due_at, true),
-      'Ngày hoàn thành': viDate(t.completed_at, true),
-      'Trạng thái': STATUS[t.status]?.label || t.status,
-      'Tiến độ %': t.progress,
-      'Ưu tiên': PRIORITY[t.priority] || t.priority,
-      'Link bàn giao': t.delivery_url || '',
-      'Lý do hủy': t.cancel_reason || '',
-    }));
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Tasks');
-    XLSX.writeFile(wb, `FPTU-Work-${new Date().toISOString().slice(0,10)}.xlsx`);
-  }
-
-  if (loading) return <main className="loadingScreen"><div className="spinner" />Đang tải FPTU Work…</main>;
-  if (!session?.user) return <LoginScreen onLogin={login} error={authError} />;
-  if (!membership) return <AccessGate profile={profile} onLogout={logout} inviteError={inviteError || authError} />;
-
-  const unreadCount = notifications.filter(n => !n.is_read).length;
-
-  return (
-    <div className="appShell">
-      <aside className="sidebar">
-        <div className="brand"><span className="brandMark smallMark">F</span><b>FPTU Work</b></div>
-        <nav>
-          <button className="navActive">✓ <span>Tasks</span></button>
-          <button onClick={() => setScope('mine')}>◎ <span>Của tôi</span></button>
-          <button onClick={() => setScope('review')}>◌ <span>Chờ duyệt</span></button>
-          <button onClick={exportExcel}>⇩ <span>Xuất Excel</span></button>
-        </nav>
-        <div className="sidebarBottom">
-          <div className="meRow"><Avatar profile={profile} size="small"/><div><b>{profile?.full_name || profile?.email}</b><small>{ROLE[role]}</small></div></div>
-          <button className="textButton" onClick={logout}>Đăng xuất</button>
-        </div>
-      </aside>
-
-      <main className="mainArea">
-        <header className="topbar">
-          <div>
-            <h1>Tasks</h1>
-            <p>{workspace?.name} · {teamMap[membership.team_id]?.name || 'Toàn workspace'}</p>
-          </div>
-          <div className="topActions">
-            {isManager && <button className="secondaryButton" onClick={toggleInvitePanel}>＋ Mời thành viên</button>}
-            <button className="iconButton" onClick={markNotificationsRead} title="Thông báo">🔔{unreadCount ? <span>{unreadCount}</span> : null}</button>
-            <Avatar profile={profile} />
-          </div>
-        </header>
-
-        {invitePanel && isManager ? (
-          <section className="invitePanel">
-            <div className="sectionHead"><div><h3>Link mời nhiều người</h3><p>Mặc định role Nhân viên/CTV, tối đa 50 lượt, hết hạn sau 14 ngày.</p></div><button className="primaryButton" onClick={createInvite}>Tạo & copy link</button></div>
-            {invites.map(inv => <div className="inviteRow" key={inv.id}>
-              <code>{`${process.env.NEXT_PUBLIC_APP_URL || ''}/?invite=${inv.token}`}</code>
-              <span>{inv.usage_count}/{inv.max_uses || '∞'} lượt</span>
-              <span>{inv.revoked_at ? 'Đã thu hồi' : `Hết hạn ${viDate(inv.expires_at)}`}</span>
-              {!inv.revoked_at && <button onClick={() => revokeInvite(inv)}>Thu hồi</button>}
-            </div>)}
-          </section>
-        ) : null}
-
-        <section className="toolbar">
-          <input className="search" placeholder="Tìm mã task, công việc, người phụ trách…" value={query} onChange={e => setQuery(e.target.value)} />
-          <div className="chips">
-            {[['all','Tất cả'],['mine','Của tôi'],['assigned','Tôi giao'],['review','Chờ duyệt'],['overdue','Quá hạn']].map(([k,l]) => <button key={k} className={scope===k?'chip active':'chip'} onClick={() => setScope(k)}>{l}</button>)}
-          </div>
-          <div className="viewSwitch"><button className={view==='list'?'active':''} onClick={() => setView('list')}>☷ List</button><button className={view==='kanban'?'active':''} onClick={() => setView('kanban')}>▦ Kanban</button></div>
-        </section>
-
-        {canManage ? (
-          <form className="quickAdd" onSubmit={createTask}>
-            <span>＋</span>
-            <input value={quickTitle} onChange={e => setQuickTitle(e.target.value)} placeholder="Thêm task nhanh rồi nhấn Enter…" />
-            <select value={quickTeam} onChange={e => { setQuickTeam(e.target.value); setQuickAssignee(''); }}>
-              {teams.filter(t => role==='manager' || t.id===membership.team_id).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
-            <select value={quickAssignee} onChange={e => setQuickAssignee(e.target.value)}>
-              <option value={session.user.id}>Tôi</option>
-              {members.filter(m => !quickTeam || m.team_id===quickTeam || role==='manager').map(m => <option key={m.user_id} value={m.user_id}>{m.profile?.full_name || m.profile?.email || m.user_id}</option>)}
-            </select>
-            <input type="date" value={quickDue} onChange={e => setQuickDue(e.target.value)} />
-            <button className="primaryButton">Tạo</button>
-          </form>
-        ) : null}
-
-        {view === 'list' ? (
-          <section className="taskList">
-            <div className="taskHeader"><span></span><span>Công việc</span><span>Người thực hiện</span><span>Deadline</span><span>Ưu tiên</span><span>Trạng thái</span></div>
-            {visibleTasks.map(task => (
-              <div className={`taskRow ${task.status==='done'?'done':''}`} key={task.id}>
-                <button className={`check ${task.status==='done'?'checked':''}`} onClick={() => tickTask(task)}>{task.status==='done'?'✓':''}</button>
-                <button className="taskTitle" onClick={() => openTask(task)}><small>{task.code}</small><b>{task.title}</b></button>
-                <div className="personCell"><Avatar profile={profileMap[task.assignee_id]} size="small"/><span>{profileMap[task.assignee_id]?.full_name || profileMap[task.assignee_id]?.email || 'Chưa giao'}</span></div>
-                <span className={task.due_at && new Date(task.due_at)<new Date() && !['done','cancelled'].includes(task.status)?'overdue':''}>{dueLabel(task)}</span>
-                {canManage ? <select value={task.priority} onChange={e => updateTask(task,{priority:e.target.value},'Đã đổi ưu tiên')}>{Object.entries(PRIORITY).map(([k,v]) => <option key={k} value={k}>{v}</option>)}</select> : <span>{PRIORITY[task.priority]}</span>}
-                <span className={`statusPill s-${task.status}`}>{STATUS[task.status]?.icon} {STATUS[task.status]?.label}</span>
-              </div>
-            ))}
-            {!visibleTasks.length && <div className="empty">Không có task phù hợp.</div>}
-          </section>
-        ) : (
-          <section className="kanban">
-            {KANBAN.map(status => <div className="kanbanCol" key={status} onDragOver={e => e.preventDefault()} onDrop={async e => {
-              const id=e.dataTransfer.getData('text/task-id'); const task=tasks.find(t=>t.id===id); if(task) await updateTask(task,{status: role==='member'&&status==='done'?'review':status},`Đã chuyển ${STATUS[status].label}`);
-            }}>
-              <div className="kanbanHead"><b>{STATUS[status].label}</b><span>{visibleTasks.filter(t=>t.status===status).length}</span></div>
-              {visibleTasks.filter(t=>t.status===status).map(task => <article className="kanbanCard" key={task.id} draggable onDragStart={e=>e.dataTransfer.setData('text/task-id',task.id)} onClick={()=>openTask(task)}>
-                <small>{task.code}</small><h4>{task.title}</h4><div className="cardFoot"><Avatar profile={profileMap[task.assignee_id]} size="small"/><span className={task.due_at&&new Date(task.due_at)<new Date()?'overdue':''}>{dueLabel(task)}</span></div>
-              </article>)}
-            </div>)}
-          </section>
-        )}
-      </main>
-
-      {selected ? <aside className="drawer">
-        <div className="drawerTop"><div><small>{selected.code}</small><h2>{selected.title}</h2></div><button className="closeButton" onClick={()=>setSelectedId(null)}>×</button></div>
-        <div className="drawerFields">
-          <label><span>Trạng thái</span>{canManage ? <select value={selected.status} onChange={e=>updateTask(selected,{status:e.target.value},'Đã đổi trạng thái')}>{KANBAN.map(s=><option key={s} value={s}>{STATUS[s].label}</option>)}<option value="cancelled">Đã hủy</option></select> : <b>{STATUS[selected.status]?.label}</b>}</label>
-          <label><span>Người thực hiện</span><div className="personCell"><Avatar profile={profileMap[selected.assignee_id]} size="small"/><b>{profileMap[selected.assignee_id]?.full_name || profileMap[selected.assignee_id]?.email || '—'}</b></div></label>
-          <label><span>Team</span><b>{teamMap[selected.team_id]?.name || '—'}</b></label>
-          <label><span>Deadline</span>{canManage ? <input type="datetime-local" value={selected.due_at ? new Date(new Date(selected.due_at).getTime()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16) : ''} onChange={e=>updateTask(selected,{due_at:e.target.value?new Date(e.target.value).toISOString():null},'Đã đổi deadline')} /> : <b>{viDate(selected.due_at,true)}</b>}</label>
-          <label><span>Tiến độ</span><div className="progressEdit"><input type="range" min="0" max="100" value={selected.progress||0} onChange={e=>setTasks(prev=>prev.map(t=>t.id===selected.id?{...t,progress:Number(e.target.value)}:t))} onMouseUp={e=>updateTask(selected,{progress:Number(e.currentTarget.value)},'Đã cập nhật tiến độ')} /><b>{selected.progress||0}%</b></div></label>
-          <label><span>Link bàn giao</span><input placeholder="https://..." value={selected.delivery_url||''} onChange={e=>setTasks(prev=>prev.map(t=>t.id===selected.id?{...t,delivery_url:e.target.value}:t))} onBlur={e=>updateTask(selected,{delivery_url:e.target.value},'Đã lưu link bàn giao')} /></label>
-        </div>
-        <section className="drawerSection"><h3>Mô tả</h3><p>{selected.description || 'Chưa có mô tả.'}</p></section>
-        <section className="drawerSection"><h3>Bình luận <span>{comments.length}</span></h3>
-          <form className="commentComposer" onSubmit={addComment}><textarea value={commentDraft} onChange={e=>setCommentDraft(e.target.value)} placeholder="Viết bình luận, @mention, dán link…"/><button className="primaryButton">Gửi</button></form>
-          <div className="commentList">{comments.map(c=><article className="comment" key={c.id}><Avatar profile={profileMap[c.user_id] || (c.user_id===session.user.id?profile:null)} size="small"/><div><div className="commentMeta"><b>{profileMap[c.user_id]?.full_name || (c.user_id===session.user.id?profile?.full_name:null) || 'Thành viên'}</b><span>{viDate(c.created_at,true)}{c.updated_at?' · đã sửa':''}</span></div><p>{c.content}</p>{c.user_id===session.user.id?<div className="commentActions"><button onClick={()=>editComment(c)}>Sửa</button><button onClick={()=>deleteComment(c)}>Xóa</button></div>:null}</div></article>)}</div>
-        </section>
-        <section className="drawerSection"><h3>Nhật ký hoạt động</h3>{activity.map(a=><div className="activityItem" key={a.id}><span>•</span><div><b>{a.action.replaceAll('_',' ')}</b><small>{viDate(a.created_at,true)}</small></div></div>)}</section>
-      </aside> : null}
-
-      {toast ? <div className="toast">{toast}</div> : null}
-    </div>
-  );
-}
+function ProjectFiles({project}){return <div className="panel"><h3>Files</h3><p>Khu vực file chung của Project. Có thể lưu Drive URL hoặc tích hợp Supabase Storage.</p><div className="empty">Chưa có file.</div></div>}
+function ProjectActivity({project}){const [rows,setRows]=useState([]);useEffect(()=>{supabase.from('project_activity_logs').select('*').eq('project_id',project.id).order('created_at',{ascending:false}).limit(100).then(({data})=>setRows(data||[]))},[project.id]);return <div className="panel"><h3>Project Activity</h3>{rows.length?rows.map(x=><div className="activityLine" key={x.id}><span>•</span><div>{x.action}<small>{fmtDateTime(x.created_at)}</small></div></div>):<div className="empty">Chưa có activity riêng của Project.</div>}</div>}
