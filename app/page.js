@@ -1,348 +1,513 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
+import { getSupabase } from '../lib/supabase';
 
-const USERS = [
-  { id: 1, name: 'Mạnh', role: 'Trưởng phòng', team: 'MKT', email: 'manh@fpt.edu.vn' },
-  { id: 2, name: 'Thùy Dương', role: 'Team Lead', team: 'SOCIAL', email: 'duong@fpt.edu.vn' },
-  { id: 3, name: 'Na Uyên', role: 'Nhân viên/CTV', team: 'SOCIAL', email: 'uyen@fpt.edu.vn' },
-  { id: 4, name: 'Ái Nhi', role: 'Nhân viên/CTV', team: 'PR', email: 'nhi@fpt.edu.vn' },
-  { id: 5, name: 'Huỳnh Anh', role: 'Team Lead', team: 'MEDIA', email: 'anh@fpt.edu.vn' },
-  { id: 6, name: 'Khánh Toàn', role: 'Nhân viên/CTV', team: 'DESIGN', email: 'toan@fpt.edu.vn' },
-];
+const STATUS = {
+  todo: { label: 'Cần làm', icon: '○' },
+  in_progress: { label: 'Đang làm', icon: '◐' },
+  review: { label: 'Chờ duyệt', icon: '◌' },
+  done: { label: 'Hoàn thành', icon: '✓' },
+  cancelled: { label: 'Đã hủy', icon: '×' },
+};
+const PRIORITY = { low: 'Thấp', medium: 'Trung bình', high: 'Cao', urgent: 'Khẩn cấp' };
+const ROLE = { manager: 'Trưởng phòng', team_lead: 'Team Lead', member: 'Nhân viên/CTV' };
+const KANBAN = ['todo', 'in_progress', 'review', 'done'];
 
-const SEED_TASKS = [
-  { id: 1, code: 'MEDIA-2026-014', title: 'Hoàn thiện kế hoạch Welcome K22', project: 'K22 Orientation', team: 'MEDIA', assigner: 'Mạnh', assignee: 'Huỳnh Anh', watchers: ['Thùy Dương'], priority: 'Cao', status: 'In Progress', progress: 65, due: '2026-09-05', created: '2026-09-01', accepted: '2026-09-01', completed: '', recurring: 'Không', archived: false, cancelled: false, activityCount: 6, review: '', deliverable: '', description: 'Chốt timeline, key visual, checklist vận hành và owner theo từng hạng mục.', comments: 4 },
-  { id: 2, code: 'SOCIAL-2026-025', title: 'Báo cáo performance Meta Ads', project: 'Digital Ads', team: 'SOCIAL', assigner: 'Mạnh', assignee: 'Thùy Dương', watchers: ['Huỳnh Anh'], priority: 'Cao', status: 'Review', progress: 100, due: '2026-09-03', created: '2026-08-31', accepted: '2026-08-31', completed: '', recurring: 'Hằng tuần', archived: false, cancelled: false, activityCount: 9, review: 'Đang chờ duyệt', deliverable: 'https://lookerstudio.google.com/', description: 'Đối chiếu CPL, chất lượng lead và đề xuất giữ/giảm/tắt campaign.', comments: 8 },
-  { id: 3, code: 'SOCIAL-2026-026', title: 'Lên 10 ý tưởng TikTok Student Life', project: 'TikTok Growth', team: 'SOCIAL', assigner: 'Thùy Dương', assignee: 'Na Uyên', watchers: ['Mạnh'], priority: 'Trung bình', status: 'To-do', progress: 0, due: '2026-09-06', created: '2026-09-02', accepted: '', completed: '', recurring: 'Hằng tuần', archived: false, cancelled: false, activityCount: 1, review: '', deliverable: '', description: 'Ưu tiên format dễ quay bằng điện thoại, có hook 3 giây đầu.', comments: 2 },
-  { id: 4, code: 'PR-2026-008', title: 'Cập nhật portal nội bộ', project: 'Inside-out Viral', team: 'PR', assigner: 'Mạnh', assignee: 'Ái Nhi', watchers: [], priority: 'Trung bình', status: 'Done', progress: 100, due: '2026-09-02', created: '2026-08-28', accepted: '2026-08-28', completed: '2026-09-02', recurring: 'Hằng ngày', archived: false, cancelled: false, activityCount: 8, review: 'Đã duyệt', deliverable: 'https://daihoc.fpt.edu.vn/', description: 'Cập nhật bài nổi bật và nội dung viral inside-out.', comments: 5 },
-  { id: 5, code: 'DESIGN-2026-011', title: 'Thiết kế POSM tuyển CTV', project: 'OJT / CTV', team: 'DESIGN', assigner: 'Mạnh', assignee: 'Khánh Toàn', watchers: ['Huỳnh Anh'], priority: 'Thấp', status: 'In Progress', progress: 35, due: '2026-09-08', created: '2026-09-01', accepted: '2026-09-01', completed: '', recurring: 'Không', archived: false, cancelled: false, activityCount: 4, review: '', deliverable: '', description: 'Tối giản, trẻ, dễ đọc trên mobile, chuẩn nhận diện FPT.', comments: 3 },
-];
-
-const STATUSES = ['To-do', 'In Progress', 'Review', 'Done'];
-const PRIORITIES = ['Thấp', 'Trung bình', 'Cao', 'Khẩn cấp'];
-const TEAMS = ['MKT', 'SOCIAL', 'MEDIA', 'PR', 'DESIGN'];
-const PROJECTS = ['K22 Orientation', 'Digital Ads', 'TikTok Growth', 'Inside-out Viral', 'OJT / CTV'];
-
-const STATUS_LABEL = { 'To-do': 'Cần làm', 'In Progress': 'Đang làm', 'Review': 'Chờ duyệt', 'Done': 'Hoàn thành' };
-const STATUS_ICON = { 'To-do': '○', 'In Progress': '◐', 'Review': '◌', 'Done': '✓' };
-
-function fmt(date) {
-  if (!date) return '—';
-  return new Date(`${date}T00:00:00`).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
+function viDate(value, withTime = false) {
+  if (!value) return '—';
+  return new Date(value).toLocaleString('vi-VN', withTime
+    ? { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }
+    : { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
-function isOverdue(task) {
-  return task.status !== 'Done' && !task.cancelled && new Date(`${task.due}T23:59:59`) < new Date();
+function dueLabel(task) {
+  if (!task.due_at) return 'Chưa có hạn';
+  if (task.status === 'done') return `Xong ${viDate(task.completed_at)}`;
+  const ms = new Date(task.due_at).getTime() - Date.now();
+  const days = Math.ceil(ms / 86400000);
+  if (days < 0) return `Trễ ${Math.abs(days)} ngày`;
+  if (days === 0) return 'Hôm nay';
+  if (days === 1) return 'Ngày mai';
+  return viDate(task.due_at);
 }
 
-function dueText(task) {
-  if (task.status === 'Done') return task.completed ? `Xong ${fmt(task.completed)}` : 'Đã xong';
-  const today = new Date('2026-09-03T12:00:00');
-  const due = new Date(`${task.due}T12:00:00`);
-  const diff = Math.ceil((due - today) / 86400000);
-  if (diff < 0) return `Trễ ${Math.abs(diff)} ngày`;
-  if (diff === 0) return 'Hôm nay';
-  if (diff === 1) return 'Ngày mai';
-  return fmt(task.due);
+function Avatar({ profile, size = 'normal' }) {
+  const name = profile?.full_name || profile?.email || '?';
+  if (profile?.avatar_url) return <img className={`avatar ${size}`} src={profile.avatar_url} alt={name} />;
+  return <span className={`avatar fallback ${size}`}>{name.slice(0, 1).toUpperCase()}</span>;
 }
 
-function Avatar({ name, small = false }) {
-  return <span className={`avatar ${small ? 'small' : ''}`} title={name}>{name?.slice(0, 1) || '?'}</span>;
+function LoginScreen({ onLogin, error }) {
+  return (
+    <main className="authShell">
+      <section className="authCard">
+        <div className="brandMark">F</div>
+        <h1>FPTU Work</h1>
+        <p>Giao việc, phối hợp, review và theo dõi tiến độ trong một nơi.</p>
+        {error ? <div className="errorBox">{error}</div> : null}
+        <button className="googleButton" onClick={onLogin}>
+          <span className="googleG">G</span> Tiếp tục với Google
+        </button>
+        <small>Bất kỳ tài khoản Google nào cũng có thể đăng nhập. Quyền dữ liệu được kiểm soát bằng workspace/invite.</small>
+      </section>
+    </main>
+  );
 }
 
-function PriorityDot({ priority }) {
-  return <span className={`priorityDot priority-${priority.replace(' ', '-').toLowerCase()}`} title={priority} />;
+function AccessGate({ profile, onLogout, inviteError }) {
+  return (
+    <main className="authShell">
+      <section className="authCard">
+        <Avatar profile={profile} />
+        <h2>Chào {profile?.full_name || profile?.email}</h2>
+        <p>Bạn đã đăng nhập Google nhưng chưa thuộc workspace FPTU Work.</p>
+        {inviteError ? <div className="errorBox">{inviteError}</div> : null}
+        <p className="hint">Hãy mở đúng link mời do Trưởng phòng gửi. Link mời có dạng <b>https://fptu-work.vercel.app/?invite=...</b></p>
+        <button className="secondaryButton" onClick={onLogout}>Đăng xuất</button>
+      </section>
+    </main>
+  );
 }
 
 export default function Home() {
-  const [tasks, setTasks] = useState(SEED_TASKS);
-  const [role, setRole] = useState('Trưởng phòng');
-  const [screen, setScreen] = useState('tasks');
-  const [view, setView] = useState('list');
-  const [scope, setScope] = useState('Tất cả');
+  const supabase = useMemo(() => getSupabase(), []);
+  const [loading, setLoading] = useState(true);
+  const [authError, setAuthError] = useState('');
+  const [session, setSession] = useState(null);
+  const [profile, setProfile] = useState(null);
+  const [membership, setMembership] = useState(null);
+  const [workspace, setWorkspace] = useState(null);
+  const [teams, setTeams] = useState([]);
+  const [members, setMembers] = useState([]);
+  const [projects, setProjects] = useState([]);
+  const [tasks, setTasks] = useState([]);
+  const [notifications, setNotifications] = useState([]);
   const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState('Tất cả');
-  const [drawerId, setDrawerId] = useState(null);
+  const [scope, setScope] = useState('all');
+  const [view, setView] = useState('list');
+  const [selectedId, setSelectedId] = useState(null);
+  const [comments, setComments] = useState([]);
+  const [activity, setActivity] = useState([]);
+  const [commentDraft, setCommentDraft] = useState('');
   const [quickTitle, setQuickTitle] = useState('');
-  const [quickColumn, setQuickColumn] = useState(null);
-  const [toast, setToast] = useState(null);
-  const [logs, setLogs] = useState([
-    { id: 1, actor: 'Mạnh', action: 'Duyệt hoàn thành', task: 'PR-2026-008', time: '15:05' },
-    { id: 2, actor: 'Thùy Dương', action: 'Gửi duyệt', task: 'SOCIAL-2026-025', time: '14:42' },
-    { id: 3, actor: 'Mạnh', action: 'Đổi deadline → 03/09', task: 'SOCIAL-2026-025', time: '13:40' },
-  ]);
-  const [invite, setInvite] = useState({ active: true, token: 'MKT-HCM-2026', expires: '2026-12-31', uses: 7, maxUses: 50, role: 'Nhân viên/CTV' });
-  const dragId = useRef(null);
+  const [quickTeam, setQuickTeam] = useState('');
+  const [quickAssignee, setQuickAssignee] = useState('');
+  const [quickDue, setQuickDue] = useState('');
+  const [toast, setToast] = useState('');
+  const [invitePanel, setInvitePanel] = useState(false);
+  const [invites, setInvites] = useState([]);
+  const [inviteError, setInviteError] = useState('');
 
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem('fptu-work-ux-v3');
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed.tasks) setTasks(parsed.tasks);
-        if (parsed.logs) setLogs(parsed.logs);
-      }
-    } catch {}
+  const role = membership?.role;
+  const canManage = role === 'manager' || role === 'team_lead';
+  const isManager = role === 'manager';
+
+  const flash = useCallback((msg) => {
+    setToast(msg);
+    window.setTimeout(() => setToast(''), 2600);
   }, []);
 
-  useEffect(() => {
-    try { localStorage.setItem('fptu-work-ux-v3', JSON.stringify({ tasks, logs })); } catch {}
-  }, [tasks, logs]);
+  const loadMembership = useCallback(async (userId) => {
+    const { data, error } = await supabase
+      .from('memberships')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('status', 'active')
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    setMembership(data || null);
+    return data || null;
+  }, [supabase]);
 
-  const currentUser = role === 'Trưởng phòng' ? 'Mạnh' : role === 'Team Lead' ? 'Thùy Dương' : 'Na Uyên';
-  const canApprove = role !== 'Nhân viên/CTV';
+  const loadWorkspaceData = useCallback(async (m) => {
+    if (!m) return;
+    const [w, t, mem, p, taskRes, n] = await Promise.all([
+      supabase.from('workspaces').select('*').eq('id', m.workspace_id).single(),
+      supabase.from('teams').select('*').eq('workspace_id', m.workspace_id).order('name'),
+      supabase.from('memberships').select('*').eq('workspace_id', m.workspace_id).eq('status', 'active'),
+      supabase.from('projects').select('*').eq('workspace_id', m.workspace_id).order('created_at'),
+      supabase.from('tasks').select('*').eq('workspace_id', m.workspace_id).is('archived_at', null).order('created_at', { ascending: false }),
+      supabase.from('notifications').select('*').order('created_at', { ascending: false }).limit(30),
+    ]);
+    if (w.error) throw w.error;
+    if (t.error) throw t.error;
+    if (mem.error) throw mem.error;
+    if (p.error) throw p.error;
+    if (taskRes.error) throw taskRes.error;
+    setWorkspace(w.data);
+    setTeams(t.data || []);
+    setProjects(p.data || []);
+    setTasks(taskRes.data || []);
+    setNotifications(n.data || []);
 
-  const activeTasks = useMemo(() => tasks.filter(t => !t.archived && !t.cancelled), [tasks]);
+    const ids = [...new Set((mem.data || []).map(x => x.user_id))];
+    const { data: profiles } = ids.length
+      ? await supabase.from('profiles').select('*').in('id', ids)
+      : { data: [] };
+    const pMap = Object.fromEntries((profiles || []).map(x => [x.id, x]));
+    setMembers((mem.data || []).map(x => ({ ...x, profile: pMap[x.user_id] || null })));
 
-  const filteredTasks = useMemo(() => {
-    return activeTasks.filter(task => {
-      const haystack = `${task.code} ${task.title} ${task.project} ${task.team} ${task.assignee} ${task.assigner}`.toLowerCase();
-      if (!haystack.includes(query.toLowerCase())) return false;
-      if (scope === 'Của tôi' && task.assignee !== currentUser) return false;
-      if (scope === 'Tôi giao' && task.assigner !== currentUser) return false;
-      if (scope === 'Theo dõi' && !task.watchers.includes(currentUser)) return false;
-      if (filter === 'Quá hạn' && !isOverdue(task)) return false;
-      if (filter === 'Hôm nay' && task.due !== '2026-09-03') return false;
-      if (filter === 'Ưu tiên cao' && !['Cao', 'Khẩn cấp'].includes(task.priority)) return false;
-      if (filter === 'Chờ duyệt' && task.status !== 'Review') return false;
-      return true;
-    });
-  }, [activeTasks, query, scope, filter, currentUser]);
+    if (!quickTeam) setQuickTeam(m.team_id || t.data?.[0]?.id || '');
+    if (!quickAssignee) setQuickAssignee(m.user_id);
+  }, [supabase, quickTeam, quickAssignee]);
 
-  const drawerTask = tasks.find(t => t.id === drawerId) || null;
-
-  const stats = {
-    todo: activeTasks.filter(t => t.status === 'To-do').length,
-    doing: activeTasks.filter(t => t.status === 'In Progress').length,
-    review: activeTasks.filter(t => t.status === 'Review').length,
-    overdue: activeTasks.filter(isOverdue).length,
-  };
-
-  function addLog(task, action) {
-    setLogs(prev => [{ id: Date.now(), actor: currentUser, action, task: task.code, time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) }, ...prev]);
-  }
-
-  function applyTask(id, patch, label, { undo = true } = {}) {
-    const before = tasks.find(t => t.id === id);
-    if (!before) return;
-    setTasks(prev => prev.map(t => t.id === id ? { ...t, ...patch, activityCount: (t.activityCount || 0) + 1 } : t));
-    addLog(before, label);
-    if (undo) {
-      setToast({ message: label, undo: () => setTasks(prev => prev.map(t => t.id === id ? before : t)) });
-    } else {
-      setToast({ message: label });
-    }
-  }
-
-  function toggleComplete(task) {
-    if (task.status === 'Done') {
-      applyTask(task.id, { status: 'In Progress', progress: 90, completed: '', review: '' }, 'Mở lại task');
+  const boot = useCallback(async () => {
+    if (!supabase) {
+      setAuthError('Thiếu biến môi trường Supabase trên Vercel.');
+      setLoading(false);
       return;
     }
-    if (role === 'Nhân viên/CTV') {
-      applyTask(task.id, { status: 'Review', progress: 100, accepted: task.accepted || '2026-09-03', review: 'Đang chờ duyệt' }, 'Đã gửi duyệt');
-    } else {
-      applyTask(task.id, { status: 'Done', progress: 100, completed: '2026-09-03', review: 'Đã duyệt' }, 'Đã hoàn thành task');
+    try {
+      const { data: { session: current } } = await supabase.auth.getSession();
+      setSession(current);
+      if (!current?.user) { setLoading(false); return; }
+
+      const { data: me } = await supabase.from('profiles').select('*').eq('id', current.user.id).maybeSingle();
+      setProfile(me || { id: current.user.id, email: current.user.email, full_name: current.user.user_metadata?.full_name });
+
+      let m = await loadMembership(current.user.id);
+      const invite = new URLSearchParams(window.location.search).get('invite');
+      if (!m && invite) {
+        const { error } = await supabase.rpc('accept_invitation', { p_token: invite });
+        if (error) setInviteError(error.message);
+        else {
+          window.history.replaceState({}, '', window.location.pathname);
+          m = await loadMembership(current.user.id);
+        }
+      }
+      if (!m) {
+        const { data: result } = await supabase.rpc('bootstrap_first_manager');
+        if (result?.bootstrapped) m = await loadMembership(current.user.id);
+      }
+      if (m) await loadWorkspaceData(m);
+    } catch (e) {
+      setAuthError(e.message || 'Không thể khởi tạo ứng dụng.');
+    } finally {
+      setLoading(false);
     }
+  }, [supabase, loadMembership, loadWorkspaceData]);
+
+  useEffect(() => {
+    boot();
+    if (!supabase) return;
+    const { data } = supabase.auth.onAuthStateChange((_event, next) => setSession(next));
+    return () => data.subscription.unsubscribe();
+  }, [boot, supabase]);
+
+  useEffect(() => {
+    if (!supabase || !membership) return;
+    const channel = supabase.channel('fptu-work-live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => loadWorkspaceData(membership))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => loadWorkspaceData(membership))
+      .subscribe();
+    return () => supabase.removeChannel(channel);
+  }, [supabase, membership, loadWorkspaceData]);
+
+  async function login() {
+    setAuthError('');
+    const redirectTo = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+    const { error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo } });
+    if (error) setAuthError(error.message);
   }
 
-  function changeStatus(task, status) {
-    const patch = { status };
-    if (status === 'Done') Object.assign(patch, { progress: 100, completed: '2026-09-03', review: 'Đã duyệt' });
-    if (status === 'Review') Object.assign(patch, { progress: 100, review: 'Đang chờ duyệt' });
-    if (status === 'In Progress' && !task.accepted) patch.accepted = '2026-09-03';
-    applyTask(task.id, patch, `Chuyển sang ${STATUS_LABEL[status]}`);
+  async function logout() {
+    await supabase.auth.signOut();
+    window.location.href = '/';
   }
 
-  function nextCode(team) {
-    const nums = tasks.filter(t => t.code.startsWith(`${team}-2026-`)).map(t => Number(t.code.split('-').pop()) || 0);
-    return `${team}-2026-${String(Math.max(0, ...nums) + 1).padStart(3, '0')}`;
+  const profileMap = useMemo(() => Object.fromEntries(members.map(m => [m.user_id, m.profile])), [members]);
+  const teamMap = useMemo(() => Object.fromEntries(teams.map(t => [t.id, t])), [teams]);
+  const projectMap = useMemo(() => Object.fromEntries(projects.map(p => [p.id, p])), [projects]);
+
+  const visibleTasks = useMemo(() => tasks.filter(t => {
+    const q = query.trim().toLowerCase();
+    const assignee = profileMap[t.assignee_id]?.full_name || profileMap[t.assignee_id]?.email || '';
+    const text = `${t.code} ${t.title} ${teamMap[t.team_id]?.name || ''} ${assignee}`.toLowerCase();
+    if (q && !text.includes(q)) return false;
+    if (scope === 'mine' && t.assignee_id !== session?.user?.id) return false;
+    if (scope === 'assigned' && t.assigner_id !== session?.user?.id) return false;
+    if (scope === 'review' && t.status !== 'review') return false;
+    if (scope === 'overdue' && (!t.due_at || ['done', 'cancelled'].includes(t.status) || new Date(t.due_at) >= new Date())) return false;
+    return true;
+  }), [tasks, query, scope, profileMap, teamMap, session]);
+
+  const selected = tasks.find(t => t.id === selectedId) || null;
+
+  async function openTask(task) {
+    setSelectedId(task.id);
+    const [c, a] = await Promise.all([
+      supabase.from('task_comments').select('*').eq('task_id', task.id).is('deleted_at', null).order('created_at'),
+      supabase.from('task_activity_logs').select('*').eq('task_id', task.id).order('created_at', { ascending: false }).limit(50),
+    ]);
+    setComments(c.data || []);
+    setActivity(a.data || []);
   }
 
-  function createQuickTask(title, status = 'To-do') {
-    const clean = title.trim();
-    if (!clean) return;
-    const team = scope === 'Của tôi' ? (USERS.find(u => u.name === currentUser)?.team || 'MKT') : 'MKT';
-    const task = {
-      id: Date.now(), code: nextCode(team), title: clean, project: PROJECTS[0], team,
-      assigner: currentUser, assignee: currentUser, watchers: [], priority: 'Trung bình', status,
-      progress: status === 'Done' ? 100 : status === 'Review' ? 100 : status === 'In Progress' ? 20 : 0,
-      due: '2026-09-10', created: '2026-09-03', accepted: status === 'To-do' ? '' : '2026-09-03',
-      completed: status === 'Done' ? '2026-09-03' : '', recurring: 'Không', archived: false, cancelled: false,
-      activityCount: 1, review: status === 'Review' ? 'Đang chờ duyệt' : '', deliverable: '', description: '', comments: 0,
-    };
-    setTasks(prev => [task, ...prev]);
-    addLog(task, 'Tạo task nhanh');
-    setQuickTitle('');
-    setQuickColumn(null);
-    setToast({ message: `Đã tạo ${task.code}` });
+  async function updateTask(task, patch, message = 'Đã cập nhật') {
+    const old = { ...task };
+    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, ...patch } : t));
+    const { error } = await supabase.from('tasks').update(patch).eq('id', task.id);
+    if (error) {
+      setTasks(prev => prev.map(t => t.id === task.id ? old : t));
+      flash(`Không thể cập nhật: ${error.message}`);
+      return false;
+    }
+    flash(message);
+    return true;
+  }
+
+  async function tickTask(task) {
+    if (task.status === 'done') {
+      if (!canManage) return flash('Bạn không có quyền mở lại task đã duyệt');
+      return updateTask(task, { status: 'in_progress', progress: Math.min(task.progress || 90, 90), completed_at: null }, 'Đã mở lại task');
+    }
+    if (role === 'member') {
+      return updateTask(task, { status: 'review', progress: 100, accepted_at: task.accepted_at || new Date().toISOString() }, 'Đã gửi duyệt');
+    }
+    return updateTask(task, { status: 'done', progress: 100, completed_at: new Date().toISOString() }, 'Đã hoàn thành');
+  }
+
+  async function createTask(e) {
+    e.preventDefault();
+    const title = quickTitle.trim();
+    if (!title || !canManage) return;
+    const teamId = quickTeam || membership.team_id || teams[0]?.id;
+    if (!teamId) return flash('Chưa có team');
+    const { data: code, error: codeError } = await supabase.rpc('next_task_code', { p_team_id: teamId });
+    if (codeError) return flash(codeError.message);
+    const assignee = quickAssignee || session.user.id;
+    const { error } = await supabase.from('tasks').insert({
+      workspace_id: membership.workspace_id,
+      team_id: teamId,
+      code,
+      title,
+      assigner_id: session.user.id,
+      assignee_id: assignee,
+      due_at: quickDue ? new Date(`${quickDue}T17:00:00`).toISOString() : null,
+      priority: 'medium',
+    });
+    if (error) return flash(error.message);
+    setQuickTitle(''); setQuickDue(''); flash(`Đã tạo ${code}`);
+    await loadWorkspaceData(membership);
+  }
+
+  async function addComment(e) {
+    e.preventDefault();
+    if (!selected || !commentDraft.trim()) return;
+    const { error } = await supabase.from('task_comments').insert({
+      task_id: selected.id,
+      user_id: session.user.id,
+      content: commentDraft.trim(),
+    });
+    if (error) return flash(error.message);
+    setCommentDraft('');
+    await openTask(selected);
+    flash('Đã bình luận');
+  }
+
+  async function editComment(c) {
+    if (c.user_id !== session.user.id) return;
+    const next = window.prompt('Chỉnh sửa bình luận', c.content);
+    if (!next?.trim()) return;
+    const { error } = await supabase.from('task_comments').update({ content: next.trim(), updated_at: new Date().toISOString() }).eq('id', c.id);
+    if (error) return flash(error.message);
+    await openTask(selected);
+  }
+
+  async function deleteComment(c) {
+    if (c.user_id !== session.user.id) return;
+    const { error } = await supabase.from('task_comments').update({ deleted_at: new Date().toISOString() }).eq('id', c.id);
+    if (error) return flash(error.message);
+    await openTask(selected);
+  }
+
+  async function createInvite() {
+    if (!isManager) return;
+    const teamId = membership.team_id || teams[0]?.id || null;
+    const expires = new Date(); expires.setDate(expires.getDate() + 14);
+    const { data, error } = await supabase.from('invitations').insert({
+      workspace_id: membership.workspace_id,
+      team_id: teamId,
+      role: 'member',
+      expires_at: expires.toISOString(),
+      max_uses: 50,
+      created_by: session.user.id,
+    }).select().single();
+    if (error) return flash(error.message);
+    const url = `${process.env.NEXT_PUBLIC_APP_URL || window.location.origin}/?invite=${data.token}`;
+    await navigator.clipboard.writeText(url);
+    flash('Đã tạo và copy link mời');
+    loadInvites();
+  }
+
+  async function loadInvites() {
+    if (!isManager) return;
+    const { data } = await supabase.from('invitations').select('*').eq('workspace_id', membership.workspace_id).order('created_at', { ascending: false });
+    setInvites(data || []);
+  }
+
+  async function toggleInvitePanel() {
+    const next = !invitePanel; setInvitePanel(next);
+    if (next) await loadInvites();
+  }
+
+  async function revokeInvite(inv) {
+    await supabase.from('invitations').update({ revoked_at: new Date().toISOString() }).eq('id', inv.id);
+    loadInvites(); flash('Đã thu hồi link');
+  }
+
+  async function markNotificationsRead() {
+    const unread = notifications.filter(n => !n.is_read).map(n => n.id);
+    if (!unread.length) return;
+    await supabase.from('notifications').update({ is_read: true }).in('id', unread);
+    setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
   }
 
   function exportExcel() {
-    const rows = filteredTasks.map(t => ({
-      'Mã task': t.code, 'Công việc': t.title, 'Dự án': t.project, 'Team': t.team,
-      'Người giao': t.assigner, 'Người thực hiện': t.assignee, 'Watchers': t.watchers.join(', '),
-      'Ngày tạo': t.created, 'Ngày xác nhận': t.accepted, 'Deadline': t.due, 'Ngày hoàn thành': t.completed,
-      'Trạng thái': STATUS_LABEL[t.status], 'Tiến độ %': t.progress, 'Ưu tiên': t.priority,
-      'Kết quả review': t.review, 'Link bàn giao': t.deliverable,
+    const rows = visibleTasks.map(t => ({
+      'Mã task': t.code,
+      'Công việc': t.title,
+      'Team': teamMap[t.team_id]?.name || '',
+      'Dự án': projectMap[t.project_id]?.name || '',
+      'Người giao': profileMap[t.assigner_id]?.full_name || profileMap[t.assigner_id]?.email || '',
+      'Người thực hiện': profileMap[t.assignee_id]?.full_name || profileMap[t.assignee_id]?.email || '',
+      'Ngày tạo': viDate(t.created_at, true),
+      'Ngày xác nhận': viDate(t.accepted_at, true),
+      'Deadline': viDate(t.due_at, true),
+      'Ngày hoàn thành': viDate(t.completed_at, true),
+      'Trạng thái': STATUS[t.status]?.label || t.status,
+      'Tiến độ %': t.progress,
+      'Ưu tiên': PRIORITY[t.priority] || t.priority,
+      'Link bàn giao': t.delivery_url || '',
+      'Lý do hủy': t.cancel_reason || '',
     }));
-    const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Tasks');
-    XLSX.writeFile(wb, 'FPTU-Work-Report.xlsx');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Tasks');
+    XLSX.writeFile(wb, `FPTU-Work-${new Date().toISOString().slice(0,10)}.xlsx`);
   }
 
-  function copyInvite() {
-    navigator.clipboard?.writeText(`https://fptu-work.vercel.app/join/${invite.token}`);
-    setToast({ message: 'Đã copy link mời' });
-  }
+  if (loading) return <main className="loadingScreen"><div className="spinner" />Đang tải FPTU Work…</main>;
+  if (!session?.user) return <LoginScreen onLogin={login} error={authError} />;
+  if (!membership) return <AccessGate profile={profile} onLogout={logout} inviteError={inviteError || authError} />;
 
-  function TaskRow({ task }) {
-    return (
-      <div className={`taskRow ${task.status === 'Done' ? 'done' : ''} ${isOverdue(task) ? 'overdue' : ''}`}>
-        <button className={`checkCircle status-${task.status.replace(' ', '-').toLowerCase()}`} onClick={() => toggleComplete(task)} title={role === 'Nhân viên/CTV' && task.status !== 'Done' ? 'Tick để gửi duyệt' : 'Tick để hoàn thành'}>
-          {task.status === 'Done' ? '✓' : task.status === 'Review' ? '◌' : ''}
-        </button>
-        <div className="taskMain">
-          <button className="taskTitle" onClick={() => setDrawerId(task.id)}>{task.title}</button>
-          <div className="taskSub">
-            <span>{task.code}</span><span>•</span><span>{task.project}</span>
-            {task.recurring !== 'Không' && <span className="repeatTag">↻ {task.recurring}</span>}
-          </div>
-        </div>
-        <div className="inlineField assigneeField">
-          <Avatar name={task.assignee} small />
-          <select value={task.assignee} onChange={e => applyTask(task.id, { assignee: e.target.value }, `Đổi người phụ trách → ${e.target.value}`)}>
-            {USERS.map(u => <option key={u.id}>{u.name}</option>)}
-          </select>
-        </div>
-        <label className={`dueField ${isOverdue(task) ? 'late' : ''}`}>
-          <span>⌚ {dueText(task)}</span>
-          <input type="date" value={task.due} onChange={e => applyTask(task.id, { due: e.target.value }, `Đổi deadline → ${fmt(e.target.value)}`)} />
-        </label>
-        <label className="priorityField">
-          <PriorityDot priority={task.priority} />
-          <select value={task.priority} onChange={e => applyTask(task.id, { priority: e.target.value }, `Đổi ưu tiên → ${e.target.value}`)}>
-            {PRIORITIES.map(p => <option key={p}>{p}</option>)}
-          </select>
-        </label>
-        <button className="commentCount" onClick={() => setDrawerId(task.id)}>💬 {task.comments || 0}</button>
-        <button className="moreBtn" onClick={() => setDrawerId(task.id)}>•••</button>
-      </div>
-    );
-  }
-
-  function KanbanCard({ task }) {
-    return (
-      <article className={`kanbanCard ${isOverdue(task) ? 'overdue' : ''}`} draggable onDragStart={() => { dragId.current = task.id; }} onClick={() => setDrawerId(task.id)}>
-        <div className="cardTop"><span className="codeTiny">{task.code}</span><PriorityDot priority={task.priority} /></div>
-        <div className="cardTitleWrap">
-          <button className={`checkCircle mini status-${task.status.replace(' ', '-').toLowerCase()}`} onClick={(e) => { e.stopPropagation(); toggleComplete(task); }}>{task.status === 'Done' ? '✓' : task.status === 'Review' ? '◌' : ''}</button>
-          <h3>{task.title}</h3>
-        </div>
-        <div className="cardBottom"><div className="avatarStack"><Avatar name={task.assignee} small /></div><span className={isOverdue(task) ? 'lateText' : ''}>⌚ {dueText(task)}</span><span>💬 {task.comments || 0}</span></div>
-      </article>
-    );
-  }
-
-  function Drawer() {
-    if (!drawerTask) return null;
-    const task = drawerTask;
-    return (
-      <div className="drawerOverlay" onMouseDown={e => { if (e.target === e.currentTarget) setDrawerId(null); }}>
-        <aside className="drawer">
-          <div className="drawerTop">
-            <div><span className="codeTiny">{task.code}</span><span className={`statusPill s-${task.status.replace(' ', '-').toLowerCase()}`}>{STATUS_ICON[task.status]} {STATUS_LABEL[task.status]}</span></div>
-            <button onClick={() => setDrawerId(null)}>×</button>
-          </div>
-
-          <div className="drawerBody">
-            <textarea className="drawerTitle" value={task.title} rows={2} onChange={e => setTasks(prev => prev.map(t => t.id === task.id ? { ...t, title: e.target.value } : t))} onBlur={() => addLog(task, 'Sửa tên task')} />
-            <textarea className="descriptionBox" value={task.description || ''} placeholder="Thêm mô tả…" rows={3} onChange={e => setTasks(prev => prev.map(t => t.id === task.id ? { ...t, description: e.target.value } : t))} />
-
-            <div className="propertyGrid">
-              <span>Trạng thái</span><select value={task.status} onChange={e => changeStatus(task, e.target.value)}>{STATUSES.map(s => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}</select>
-              <span>Người phụ trách</span><select value={task.assignee} onChange={e => applyTask(task.id, { assignee: e.target.value }, `Đổi người phụ trách → ${e.target.value}`)}>{USERS.map(u => <option key={u.id}>{u.name}</option>)}</select>
-              <span>Deadline</span><input type="date" value={task.due} onChange={e => applyTask(task.id, { due: e.target.value }, `Đổi deadline → ${fmt(e.target.value)}`)} />
-              <span>Ưu tiên</span><select value={task.priority} onChange={e => applyTask(task.id, { priority: e.target.value }, `Đổi ưu tiên → ${e.target.value}`)}>{PRIORITIES.map(p => <option key={p}>{p}</option>)}</select>
-              <span>Dự án</span><select value={task.project} onChange={e => applyTask(task.id, { project: e.target.value }, `Đổi dự án → ${e.target.value}`)}>{PROJECTS.map(p => <option key={p}>{p}</option>)}</select>
-              <span>Team</span><select value={task.team} onChange={e => applyTask(task.id, { team: e.target.value }, `Đổi team → ${e.target.value}`)}>{TEAMS.map(p => <option key={p}>{p}</option>)}</select>
-            </div>
-
-            <section className="progressSection">
-              <div><strong>Tiến độ</strong><span>{task.progress}%</span></div>
-              <input type="range" min="0" max="100" step="5" value={task.progress} onChange={e => setTasks(prev => prev.map(t => t.id === task.id ? { ...t, progress: Number(e.target.value) } : t))} onMouseUp={() => addLog(task, `Cập nhật tiến độ → ${task.progress}%`)} />
-            </section>
-
-            <section className="drawerSection"><h4>Bàn giao</h4><input className="fullInput" value={task.deliverable || ''} placeholder="Dán link sản phẩm bàn giao…" onChange={e => setTasks(prev => prev.map(t => t.id === task.id ? { ...t, deliverable: e.target.value } : t))} /></section>
-
-            <section className="drawerSection"><div className="sectionTitle"><h4>Hoạt động</h4><span>{task.activityCount || 0} cập nhật</span></div>
-              <div className="activityList">{logs.filter(l => l.task === task.code).slice(0, 5).map(l => <div key={l.id} className="activityItem"><Avatar name={l.actor} small /><div><strong>{l.actor}</strong> {l.action}<small>{l.time}</small></div></div>)}{!logs.some(l => l.task === task.code) && <p className="emptySmall">Chưa có hoạt động mới.</p>}</div>
-            </section>
-          </div>
-
-          <div className="drawerFooter">
-            {task.status === 'Review' && canApprove ? <><button className="secondaryAction" onClick={() => applyTask(task.id, { status: 'In Progress', review: 'Yêu cầu chỉnh sửa', progress: 90 }, 'Yêu cầu chỉnh sửa')}>↩ Yêu cầu sửa</button><button className="primaryAction" onClick={() => toggleComplete(task)}>✓ Duyệt hoàn thành</button></> : <button className="primaryAction grow" onClick={() => toggleComplete(task)}>{role === 'Nhân viên/CTV' ? '✓ Gửi duyệt' : '✓ Hoàn thành'}</button>}
-            <button className="iconAction" title="Lưu trữ" onClick={() => { applyTask(task.id, { archived: true }, 'Đã lưu trữ'); setDrawerId(null); }}>⌁</button>
-          </div>
-        </aside>
-      </div>
-    );
-  }
+  const unreadCount = notifications.filter(n => !n.is_read).length;
 
   return (
     <div className="appShell">
       <aside className="sidebar">
-        <div className="brand"><div className="brandMark">F</div><div><strong>FPTU Work</strong><span>Marketing & Truyền thông</span></div></div>
-        <button className="createBtn" onClick={() => { setScreen('tasks'); setView('list'); setTimeout(() => document.getElementById('quick-add')?.focus(), 50); }}>＋ Tạo công việc</button>
+        <div className="brand"><span className="brandMark smallMark">F</span><b>FPTU Work</b></div>
         <nav>
-          <button className={screen === 'home' ? 'active' : ''} onClick={() => setScreen('home')}><span>⌂</span>Tổng quan</button>
-          <button className={screen === 'tasks' ? 'active' : ''} onClick={() => setScreen('tasks')}><span>✓</span>Công việc <em>{activeTasks.length}</em></button>
-          <button className={screen === 'projects' ? 'active' : ''} onClick={() => setScreen('projects')}><span>▦</span>Dự án</button>
-          <button className={screen === 'team' ? 'active' : ''} onClick={() => setScreen('team')}><span>♙</span>Nhân sự</button>
-          <button className={screen === 'activity' ? 'active' : ''} onClick={() => setScreen('activity')}><span>◴</span>Nhật ký</button>
+          <button className="navActive">✓ <span>Tasks</span></button>
+          <button onClick={() => setScope('mine')}>◎ <span>Của tôi</span></button>
+          <button onClick={() => setScope('review')}>◌ <span>Chờ duyệt</span></button>
+          <button onClick={exportExcel}>⇩ <span>Xuất Excel</span></button>
         </nav>
-        <div className="sidebarSection"><label>KHÔNG GIAN</label><button><span className="dot orange" /> Marketing HCM</button><button><span className="dot blue" /> Social</button><button><span className="dot green" /> Media</button></div>
-        <div className="sidebarBottom"><label>Test quyền</label><select value={role} onChange={e => setRole(e.target.value)}><option>Trưởng phòng</option><option>Team Lead</option><option>Nhân viên/CTV</option></select><div className="profile"><Avatar name={currentUser} /><div><strong>{currentUser}</strong><span>{role}</span></div><button>•••</button></div></div>
+        <div className="sidebarBottom">
+          <div className="meRow"><Avatar profile={profile} size="small"/><div><b>{profile?.full_name || profile?.email}</b><small>{ROLE[role]}</small></div></div>
+          <button className="textButton" onClick={logout}>Đăng xuất</button>
+        </div>
       </aside>
 
-      <main className="main">
-        {screen === 'tasks' && <>
-          <header className="pageHeader"><div><h1>Công việc</h1><p>Mọi thứ cần làm, trong một nơi.</p></div><div className="headerActions"><button className="lightBtn" onClick={exportExcel}>⇩ Xuất Excel</button><button className="lightBtn" onClick={() => setScreen('invite')}>♧ Mời thành viên</button></div></header>
+      <main className="mainArea">
+        <header className="topbar">
+          <div>
+            <h1>Tasks</h1>
+            <p>{workspace?.name} · {teamMap[membership.team_id]?.name || 'Toàn workspace'}</p>
+          </div>
+          <div className="topActions">
+            {isManager && <button className="secondaryButton" onClick={toggleInvitePanel}>＋ Mời thành viên</button>}
+            <button className="iconButton" onClick={markNotificationsRead} title="Thông báo">🔔{unreadCount ? <span>{unreadCount}</span> : null}</button>
+            <Avatar profile={profile} />
+          </div>
+        </header>
 
-          <div className="scopeTabs">{['Tất cả', 'Của tôi', 'Tôi giao', 'Theo dõi'].map(s => <button key={s} className={scope === s ? 'active' : ''} onClick={() => setScope(s)}>{s}</button>)}</div>
-
-          <section className="taskWorkspace">
-            <div className="workspaceToolbar">
-              <div className="searchBox">⌕<input value={query} onChange={e => setQuery(e.target.value)} placeholder="Tìm công việc, mã task, người phụ trách…" /></div>
-              <div className="filterChips">{['Tất cả', 'Hôm nay', 'Quá hạn', 'Ưu tiên cao', 'Chờ duyệt'].map(f => <button key={f} className={filter === f ? 'active' : ''} onClick={() => setFilter(f)}>{f}{f === 'Quá hạn' && stats.overdue > 0 ? ` · ${stats.overdue}` : ''}</button>)}</div>
-              <div className="viewSwitch"><button className={view === 'list' ? 'active' : ''} onClick={() => setView('list')}>☷</button><button className={view === 'kanban' ? 'active' : ''} onClick={() => setView('kanban')}>▦</button></div>
-            </div>
-
-            {view === 'list' ? <div className="listView">
-              <div className="listHeader"><span></span><span>CÔNG VIỆC</span><span>NGƯỜI PHỤ TRÁCH</span><span>DEADLINE</span><span>ƯU TIÊN</span><span></span><span></span></div>
-              <div className="quickAddRow"><span className="quickPlus">＋</span><input id="quick-add" value={quickTitle} onChange={e => setQuickTitle(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') createQuickTask(quickTitle); if (e.key === 'Escape') setQuickTitle(''); }} placeholder="Thêm công việc… (Enter để tạo)" /></div>
-              {filteredTasks.map(task => <TaskRow key={task.id} task={task} />)}
-              {filteredTasks.length === 0 && <div className="emptyState"><div>✓</div><strong>Không có công việc nào</strong><span>Thử đổi bộ lọc hoặc tạo task mới.</span></div>}
-            </div> : <div className="kanbanBoard">{STATUSES.map(status => <section key={status} className="kanbanColumn" onDragOver={e => e.preventDefault()} onDrop={() => { const task = tasks.find(t => t.id === dragId.current); if (task && task.status !== status) changeStatus(task, status); dragId.current = null; }}><div className="kanbanHead"><div><span className={`statusMini st-${status.replace(' ', '-').toLowerCase()}`}>{STATUS_ICON[status]}</span><strong>{STATUS_LABEL[status]}</strong><em>{filteredTasks.filter(t => t.status === status).length}</em></div><button onClick={() => setQuickColumn(status)}>＋</button></div>{quickColumn === status && <input autoFocus className="kanbanQuickInput" placeholder="Nhập task rồi Enter…" onKeyDown={e => { if (e.key === 'Enter') createQuickTask(e.currentTarget.value, status); if (e.key === 'Escape') setQuickColumn(null); }} />}{filteredTasks.filter(t => t.status === status).map(task => <KanbanCard key={task.id} task={task} />)}<button className="addCardBtn" onClick={() => setQuickColumn(status)}>＋ Thêm công việc</button></section>)}</div>}
+        {invitePanel && isManager ? (
+          <section className="invitePanel">
+            <div className="sectionHead"><div><h3>Link mời nhiều người</h3><p>Mặc định role Nhân viên/CTV, tối đa 50 lượt, hết hạn sau 14 ngày.</p></div><button className="primaryButton" onClick={createInvite}>Tạo & copy link</button></div>
+            {invites.map(inv => <div className="inviteRow" key={inv.id}>
+              <code>{`${process.env.NEXT_PUBLIC_APP_URL || ''}/?invite=${inv.token}`}</code>
+              <span>{inv.usage_count}/{inv.max_uses || '∞'} lượt</span>
+              <span>{inv.revoked_at ? 'Đã thu hồi' : `Hết hạn ${viDate(inv.expires_at)}`}</span>
+              {!inv.revoked_at && <button onClick={() => revokeInvite(inv)}>Thu hồi</button>}
+            </div>)}
           </section>
-        </>}
+        ) : null}
 
-        {screen === 'home' && <><header className="pageHeader"><div><h1>Chào {currentUser} 👋</h1><p>Đây là những việc cần chú ý hôm nay.</p></div></header><div className="metricGrid"><div><span>Cần làm</span><strong>{stats.todo}</strong><small>task đang chờ bắt đầu</small></div><div><span>Đang làm</span><strong>{stats.doing}</strong><small>task đang thực hiện</small></div><div><span>Chờ duyệt</span><strong>{stats.review}</strong><small>cần Lead xử lý</small></div><div className="dangerMetric"><span>Quá hạn</span><strong>{stats.overdue}</strong><small>cần ưu tiên ngay</small></div></div><section className="dashboardPanel"><div className="panelTitle"><h2>Cần xử lý</h2><button onClick={() => setScreen('tasks')}>Xem tất cả →</button></div>{activeTasks.filter(t => t.status !== 'Done').slice(0, 5).map(t => <TaskRow key={t.id} task={t} />)}</section></>}
+        <section className="toolbar">
+          <input className="search" placeholder="Tìm mã task, công việc, người phụ trách…" value={query} onChange={e => setQuery(e.target.value)} />
+          <div className="chips">
+            {[['all','Tất cả'],['mine','Của tôi'],['assigned','Tôi giao'],['review','Chờ duyệt'],['overdue','Quá hạn']].map(([k,l]) => <button key={k} className={scope===k?'chip active':'chip'} onClick={() => setScope(k)}>{l}</button>)}
+          </div>
+          <div className="viewSwitch"><button className={view==='list'?'active':''} onClick={() => setView('list')}>☷ List</button><button className={view==='kanban'?'active':''} onClick={() => setView('kanban')}>▦ Kanban</button></div>
+        </section>
 
-        {screen === 'projects' && <><header className="pageHeader"><div><h1>Dự án</h1><p>Theo dõi tiến độ theo nhóm công việc.</p></div></header><div className="projectGrid">{PROJECTS.map(p => { const pTasks = activeTasks.filter(t => t.project === p); const done = pTasks.filter(t => t.status === 'Done').length; const pct = pTasks.length ? Math.round(done / pTasks.length * 100) : 0; return <article key={p}><div className="projectIcon">▦</div><h3>{p}</h3><p>{pTasks.length} công việc · {done} hoàn thành</p><div className="bar"><i style={{ width: `${pct}%` }} /></div><footer><span>{pct}%</span><div className="avatarStack">{[...new Set(pTasks.map(t => t.assignee))].slice(0, 3).map(n => <Avatar key={n} name={n} small />)}</div></footer></article>; })}</div></>}
+        {canManage ? (
+          <form className="quickAdd" onSubmit={createTask}>
+            <span>＋</span>
+            <input value={quickTitle} onChange={e => setQuickTitle(e.target.value)} placeholder="Thêm task nhanh rồi nhấn Enter…" />
+            <select value={quickTeam} onChange={e => { setQuickTeam(e.target.value); setQuickAssignee(''); }}>
+              {teams.filter(t => role==='manager' || t.id===membership.team_id).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+            <select value={quickAssignee} onChange={e => setQuickAssignee(e.target.value)}>
+              <option value={session.user.id}>Tôi</option>
+              {members.filter(m => !quickTeam || m.team_id===quickTeam || role==='manager').map(m => <option key={m.user_id} value={m.user_id}>{m.profile?.full_name || m.profile?.email || m.user_id}</option>)}
+            </select>
+            <input type="date" value={quickDue} onChange={e => setQuickDue(e.target.value)} />
+            <button className="primaryButton">Tạo</button>
+          </form>
+        ) : null}
 
-        {screen === 'team' && <><header className="pageHeader"><div><h1>Nhân sự</h1><p>Vai trò, team và khối lượng công việc.</p></div></header><div className="peopleTable">{USERS.map(u => { const count = activeTasks.filter(t => t.assignee === u.name).length; return <div key={u.id}><Avatar name={u.name} /><div><strong>{u.name}</strong><span>{u.email}</span></div><span className="rolePill">{u.role}</span><span>{u.team}</span><strong>{count} task</strong><button>•••</button></div>; })}</div></>}
-
-        {screen === 'activity' && <><header className="pageHeader"><div><h1>Nhật ký hoạt động</h1><p>Chỉ đọc · không thể sửa hoặc xóa.</p></div></header><section className="activityPanel">{logs.map(l => <div key={l.id} className="activityLine"><Avatar name={l.actor} /><div><strong>{l.actor}</strong><span>{l.action}</span><button onClick={() => { const t = tasks.find(x => x.code === l.task); if (t) setDrawerId(t.id); }}>{l.task}</button></div><time>{l.time}</time></div>)}</section></>}
-
-        {screen === 'invite' && <><header className="pageHeader"><div><button className="backBtn" onClick={() => setScreen('tasks')}>←</button><h1>Mời thành viên</h1><p>Một link dùng cho nhiều người, có thể giới hạn và thu hồi.</p></div></header><section className="invitePanel"><div className="inviteHero"><div><span>LINK MỜI WORKSPACE</span><strong>Marketing HCM</strong><p>Vai trò mặc định: {invite.role}</p></div><button className={invite.active ? 'activeStatus' : 'inactiveStatus'} onClick={() => setInvite(v => ({ ...v, active: !v.active }))}>{invite.active ? '● Đang hoạt động' : '○ Đã thu hồi'}</button></div><div className="inviteLink"><code>https://fptu-work.vercel.app/join/{invite.token}</code><button onClick={copyInvite}>Copy link</button></div><div className="inviteConfig"><label>Vai trò mặc định<select value={invite.role} onChange={e => setInvite(v => ({ ...v, role: e.target.value }))}><option>Nhân viên/CTV</option><option>Team Lead</option></select></label><label>Hết hạn<input type="date" value={invite.expires} onChange={e => setInvite(v => ({ ...v, expires: e.target.value }))} /></label><label>Số lượt tối đa<input type="number" value={invite.maxUses} onChange={e => setInvite(v => ({ ...v, maxUses: Number(e.target.value) }))} /></label></div><div className="inviteUsage"><div><strong>{invite.uses}</strong><span>đã tham gia</span></div><div><strong>{invite.maxUses - invite.uses}</strong><span>lượt còn lại</span></div><div><strong>{fmt(invite.expires)}</strong><span>ngày hết hạn</span></div></div></section></>}
+        {view === 'list' ? (
+          <section className="taskList">
+            <div className="taskHeader"><span></span><span>Công việc</span><span>Người thực hiện</span><span>Deadline</span><span>Ưu tiên</span><span>Trạng thái</span></div>
+            {visibleTasks.map(task => (
+              <div className={`taskRow ${task.status==='done'?'done':''}`} key={task.id}>
+                <button className={`check ${task.status==='done'?'checked':''}`} onClick={() => tickTask(task)}>{task.status==='done'?'✓':''}</button>
+                <button className="taskTitle" onClick={() => openTask(task)}><small>{task.code}</small><b>{task.title}</b></button>
+                <div className="personCell"><Avatar profile={profileMap[task.assignee_id]} size="small"/><span>{profileMap[task.assignee_id]?.full_name || profileMap[task.assignee_id]?.email || 'Chưa giao'}</span></div>
+                <span className={task.due_at && new Date(task.due_at)<new Date() && !['done','cancelled'].includes(task.status)?'overdue':''}>{dueLabel(task)}</span>
+                {canManage ? <select value={task.priority} onChange={e => updateTask(task,{priority:e.target.value},'Đã đổi ưu tiên')}>{Object.entries(PRIORITY).map(([k,v]) => <option key={k} value={k}>{v}</option>)}</select> : <span>{PRIORITY[task.priority]}</span>}
+                <span className={`statusPill s-${task.status}`}>{STATUS[task.status]?.icon} {STATUS[task.status]?.label}</span>
+              </div>
+            ))}
+            {!visibleTasks.length && <div className="empty">Không có task phù hợp.</div>}
+          </section>
+        ) : (
+          <section className="kanban">
+            {KANBAN.map(status => <div className="kanbanCol" key={status} onDragOver={e => e.preventDefault()} onDrop={async e => {
+              const id=e.dataTransfer.getData('text/task-id'); const task=tasks.find(t=>t.id===id); if(task) await updateTask(task,{status: role==='member'&&status==='done'?'review':status},`Đã chuyển ${STATUS[status].label}`);
+            }}>
+              <div className="kanbanHead"><b>{STATUS[status].label}</b><span>{visibleTasks.filter(t=>t.status===status).length}</span></div>
+              {visibleTasks.filter(t=>t.status===status).map(task => <article className="kanbanCard" key={task.id} draggable onDragStart={e=>e.dataTransfer.setData('text/task-id',task.id)} onClick={()=>openTask(task)}>
+                <small>{task.code}</small><h4>{task.title}</h4><div className="cardFoot"><Avatar profile={profileMap[task.assignee_id]} size="small"/><span className={task.due_at&&new Date(task.due_at)<new Date()?'overdue':''}>{dueLabel(task)}</span></div>
+              </article>)}
+            </div>)}
+          </section>
+        )}
       </main>
 
-      <Drawer />
-      {toast && <div className="toast"><span>{toast.message}</span>{toast.undo && <button onClick={() => { toast.undo(); setToast(null); }}>Hoàn tác</button>}<button className="toastClose" onClick={() => setToast(null)}>×</button></div>}
+      {selected ? <aside className="drawer">
+        <div className="drawerTop"><div><small>{selected.code}</small><h2>{selected.title}</h2></div><button className="closeButton" onClick={()=>setSelectedId(null)}>×</button></div>
+        <div className="drawerFields">
+          <label><span>Trạng thái</span>{canManage ? <select value={selected.status} onChange={e=>updateTask(selected,{status:e.target.value},'Đã đổi trạng thái')}>{KANBAN.map(s=><option key={s} value={s}>{STATUS[s].label}</option>)}<option value="cancelled">Đã hủy</option></select> : <b>{STATUS[selected.status]?.label}</b>}</label>
+          <label><span>Người thực hiện</span><div className="personCell"><Avatar profile={profileMap[selected.assignee_id]} size="small"/><b>{profileMap[selected.assignee_id]?.full_name || profileMap[selected.assignee_id]?.email || '—'}</b></div></label>
+          <label><span>Team</span><b>{teamMap[selected.team_id]?.name || '—'}</b></label>
+          <label><span>Deadline</span>{canManage ? <input type="datetime-local" value={selected.due_at ? new Date(new Date(selected.due_at).getTime()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16) : ''} onChange={e=>updateTask(selected,{due_at:e.target.value?new Date(e.target.value).toISOString():null},'Đã đổi deadline')} /> : <b>{viDate(selected.due_at,true)}</b>}</label>
+          <label><span>Tiến độ</span><div className="progressEdit"><input type="range" min="0" max="100" value={selected.progress||0} onChange={e=>setTasks(prev=>prev.map(t=>t.id===selected.id?{...t,progress:Number(e.target.value)}:t))} onMouseUp={e=>updateTask(selected,{progress:Number(e.currentTarget.value)},'Đã cập nhật tiến độ')} /><b>{selected.progress||0}%</b></div></label>
+          <label><span>Link bàn giao</span><input placeholder="https://..." value={selected.delivery_url||''} onChange={e=>setTasks(prev=>prev.map(t=>t.id===selected.id?{...t,delivery_url:e.target.value}:t))} onBlur={e=>updateTask(selected,{delivery_url:e.target.value},'Đã lưu link bàn giao')} /></label>
+        </div>
+        <section className="drawerSection"><h3>Mô tả</h3><p>{selected.description || 'Chưa có mô tả.'}</p></section>
+        <section className="drawerSection"><h3>Bình luận <span>{comments.length}</span></h3>
+          <form className="commentComposer" onSubmit={addComment}><textarea value={commentDraft} onChange={e=>setCommentDraft(e.target.value)} placeholder="Viết bình luận, @mention, dán link…"/><button className="primaryButton">Gửi</button></form>
+          <div className="commentList">{comments.map(c=><article className="comment" key={c.id}><Avatar profile={profileMap[c.user_id] || (c.user_id===session.user.id?profile:null)} size="small"/><div><div className="commentMeta"><b>{profileMap[c.user_id]?.full_name || (c.user_id===session.user.id?profile?.full_name:null) || 'Thành viên'}</b><span>{viDate(c.created_at,true)}{c.updated_at?' · đã sửa':''}</span></div><p>{c.content}</p>{c.user_id===session.user.id?<div className="commentActions"><button onClick={()=>editComment(c)}>Sửa</button><button onClick={()=>deleteComment(c)}>Xóa</button></div>:null}</div></article>)}</div>
+        </section>
+        <section className="drawerSection"><h3>Nhật ký hoạt động</h3>{activity.map(a=><div className="activityItem" key={a.id}><span>•</span><div><b>{a.action.replaceAll('_',' ')}</b><small>{viDate(a.created_at,true)}</small></div></div>)}</section>
+      </aside> : null}
+
+      {toast ? <div className="toast">{toast}</div> : null}
     </div>
   );
 }
