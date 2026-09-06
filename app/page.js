@@ -666,12 +666,14 @@ export default function Home(){
           quickCreateTask={quickCreateTask}
           canTask={canTask}
           members={projectMembers}
+          workspaceMembers={members}
           openTask={setTaskDrawer}
           updateTask={updateTask}
           completeByCheckbox={completeByCheckbox}
           exportExcel={exportExcel}
           membership={membership}
           currentProjectMember={currentProjectMember}
+          onProjectMembersChanged={()=>openProject(project)}
         />
       }
 
@@ -972,13 +974,22 @@ function ProjectPage({
   quickCreateTask,
   canTask,
   members,
+  workspaceMembers,
   openTask,
   updateTask,
   completeByCheckbox,
   exportExcel,
   membership,
-  currentProjectMember
+  currentProjectMember,
+  onProjectMembersChanged
 }){
+
+  const [projectMemberOpen,setProjectMemberOpen]=useState(false)
+
+  const canManageProjectMembers =
+    membership?.role==='manager' ||
+    project?.lead_id===membership?.user_id ||
+    !!currentProjectMember?.can_manage_project_members
 
   async function saveDescription(){
 
@@ -1131,9 +1142,28 @@ function ProjectPage({
 
           <div className="panel">
 
-            <h3>
-              Members
-            </h3>
+            <div
+              style={{
+                display:'flex',
+                alignItems:'center',
+                justifyContent:'space-between',
+                gap:12,
+                marginBottom:12
+              }}
+            >
+              <h3 style={{margin:0}}>
+                Members
+              </h3>
+
+              {canManageProjectMembers &&
+                <button
+                  className="primary"
+                  onClick={()=>setProjectMemberOpen(true)}
+                >
+                  ＋ Add member
+                </button>
+              }
+            </div>
 
             {members.map(m=>
               <div
@@ -1156,6 +1186,25 @@ function ProjectPage({
 
               </div>
             )}
+
+            {!members.length &&
+              <div className="empty">
+                Project chưa có member.
+              </div>
+            }
+
+            {projectMemberOpen &&
+              <ProjectMemberDrawer
+                project={project}
+                projectMembers={members}
+                workspaceMembers={workspaceMembers||[]}
+                onClose={()=>setProjectMemberOpen(false)}
+                onSaved={async()=>{
+                  setProjectMemberOpen(false)
+                  await onProjectMembersChanged?.()
+                }}
+              />
+            }
 
           </div>
 
@@ -2615,6 +2664,231 @@ function MemberDrawer({
   </div>
 }
 
+function ProjectMemberDrawer({
+  project,
+  projectMembers,
+  workspaceMembers,
+  onClose,
+  onSaved
+}){
+  const existingIds=new Set(
+    (projectMembers||[]).map(x=>x.user_id)
+  )
+
+  const available=(workspaceMembers||[])
+    .filter(
+      x=>
+        x.status==='active' &&
+        !existingIds.has(x.user_id)
+    )
+
+  const [userId,setUserId]=useState(
+    available[0]?.user_id||''
+  )
+
+  const [role,setRole]=useState('member')
+  const [canCreateTask,setCanCreateTask]=useState(true)
+  const [canAssignTask,setCanAssignTask]=useState(true)
+  const [canManageMembers,setCanManageMembers]=useState(false)
+  const [saving,setSaving]=useState(false)
+  const [error,setError]=useState('')
+
+  async function submit(){
+
+    if(!userId){
+      setError(
+        'Không còn member nào trong workspace để thêm vào Project.'
+      )
+      return
+    }
+
+    setSaving(true)
+    setError('')
+
+    const {error:e}=await supabase.rpc(
+      'add_project_member_safe',
+      {
+        p_project_id:project.id,
+        p_user_id:userId,
+        p_role_in_project:role,
+        p_can_create_task:canCreateTask,
+        p_can_assign_task:canAssignTask,
+        p_can_manage_project_members:canManageMembers
+      }
+    )
+
+    setSaving(false)
+
+    if(e){
+      setError(e.message)
+      return
+    }
+
+    await onSaved?.()
+  }
+
+  return <div
+    className="drawerWrap"
+    onMouseDown={e=>
+      e.target===e.currentTarget &&
+      onClose()
+    }
+  >
+
+    <aside className="drawer narrow">
+
+      <div className="drawerHead">
+
+        <div>
+
+          <small>
+            {project.code}
+          </small>
+
+          <h2 style={{margin:0}}>
+            Add member vào Project
+          </h2>
+
+        </div>
+
+        <button onClick={onClose}>
+          ×
+        </button>
+
+      </div>
+
+      <div className="drawerBody">
+
+        <Field label="Member">
+
+          <select
+            value={userId}
+            onChange={e=>setUserId(e.target.value)}
+          >
+
+            {!available.length &&
+              <option value="">
+                Không còn member khả dụng
+              </option>
+            }
+
+            {available.map(m=>
+              <option
+                key={m.user_id}
+                value={m.user_id}
+              >
+                {
+                  m.profiles?.full_name ||
+                  m.profiles?.email
+                }
+                {
+                  m.teams?.name
+                    ? ` · ${m.teams.name}`
+                    : ''
+                }
+              </option>
+            )}
+
+          </select>
+
+        </Field>
+
+        <Field label="Role trong Project">
+
+          <select
+            value={role}
+            onChange={e=>setRole(e.target.value)}
+          >
+
+            <option value="member">
+              Member
+            </option>
+
+            <option value="lead">
+              Lead
+            </option>
+
+            <option value="viewer">
+              Viewer
+            </option>
+
+          </select>
+
+        </Field>
+
+        <label className="toggleLine">
+
+          <span>
+            Được tạo task
+          </span>
+
+          <input
+            type="checkbox"
+            checked={canCreateTask}
+            onChange={e=>
+              setCanCreateTask(e.target.checked)
+            }
+          />
+
+        </label>
+
+        <label className="toggleLine">
+
+          <span>
+            Được assign task
+          </span>
+
+          <input
+            type="checkbox"
+            checked={canAssignTask}
+            onChange={e=>
+              setCanAssignTask(e.target.checked)
+            }
+          />
+
+        </label>
+
+        <label className="toggleLine">
+
+          <span>
+            Được quản lý member Project
+          </span>
+
+          <input
+            type="checkbox"
+            checked={canManageMembers}
+            onChange={e=>
+              setCanManageMembers(e.target.checked)
+            }
+          />
+
+        </label>
+
+        {error &&
+          <div className="errorBox">
+            {error}
+          </div>
+        }
+
+        <button
+          className="primary full"
+          disabled={saving||!userId}
+          onClick={submit}
+        >
+          {
+            saving
+              ? 'Đang thêm...'
+              : 'Add to Project'
+          }
+        </button>
+
+      </div>
+
+    </aside>
+
+  </div>
+}
+
 function NotificationPanel({
   notifications,
   prefs,
@@ -2769,56 +3043,6 @@ function NotificationPanel({
 
     </div>
 
-    <details className="notifPrefs">
-
-      <summary>
-        Tuỳ chọn thông báo email
-      </summary>
-
-      {[
-        ['email_assigned','Khi được giao task'],
-        ['email_comment','Khi có comment'],
-        ['email_review','Khi có review / phản hồi'],
-        ['email_mention','Khi được @mention'],
-        ['email_deadline','Nhắc deadline']
-      ].map(([k,label])=>
-        <label
-          className="toggleLine"
-          key={k}
-        >
-
-          <span>
-            {label}
-          </span>
-
-          <input
-            type="checkbox"
-            checked={!!localPrefs[k]}
-            onChange={e=>
-              setLocalPrefs({
-                ...localPrefs,
-                [k]:e.target.checked
-              })
-            }
-          />
-
-        </label>
-      )}
-
-      <button
-        className="primary full"
-        disabled={saving}
-        onClick={savePrefs}
-      >
-        {
-          saving
-            ? 'Đang lưu...'
-            : 'Lưu tuỳ chọn'
-        }
-      </button>
-
-    </details>
-
   </div>
 }
 
@@ -2915,7 +3139,7 @@ function TeamCreateDrawer({
                 code:e.target.value
               })
             }
-            placeholder="VD: PROD; để trống hệ thống tự tạo"
+            placeholder="VD: PROD"
           />
 
         </Field>
@@ -2931,12 +3155,11 @@ function TeamCreateDrawer({
                 description:e.target.value
               })
             }
-            placeholder="Vai trò, phạm vi công việc của Team..."
           />
 
         </Field>
 
-        <Field label="Team Lead (tuỳ chọn)">
+        <Field label="Team Lead">
 
           <select
             value={form.lead_id}
@@ -2949,7 +3172,7 @@ function TeamCreateDrawer({
           >
 
             <option value="">
-              Chưa gán Team Lead
+              Chưa gán
             </option>
 
             {members.map(m=>
@@ -2967,12 +3190,6 @@ function TeamCreateDrawer({
           </select>
 
         </Field>
-
-        <p className="helpText">
-          Nếu chọn Team Lead, hệ thống sẽ gán người đó vào Team
-          và nâng role thành Team Lead
-          (trừ khi người đó là Trưởng phòng).
-        </p>
 
         {error &&
           <div className="errorBox">
@@ -3102,7 +3319,6 @@ function ProjectCreateDrawer({
                 name:e.target.value
               })
             }
-            placeholder="VD: ORT K22 2026"
           />
 
         </Field>
@@ -3118,7 +3334,6 @@ function ProjectCreateDrawer({
                 code:e.target.value
               })
             }
-            placeholder="Để trống để hệ thống tự tạo"
           />
 
         </Field>
@@ -3159,7 +3374,6 @@ function ProjectCreateDrawer({
                 description:e.target.value
               })
             }
-            placeholder="Mục tiêu, output, KPI..."
           />
 
         </Field>
@@ -3396,7 +3610,7 @@ function InviteDrawer({
 
         </Field>
 
-        <Field label="Project (tuỳ chọn)">
+        <Field label="Project">
 
           <select
             value={form.project_id}
@@ -3448,42 +3662,6 @@ function InviteDrawer({
           </select>
 
         </Field>
-
-        <div className="fieldGrid">
-
-          <Field label="Số lượt dùng">
-
-            <input
-              type="number"
-              min="1"
-              value={form.max_uses}
-              onChange={e=>
-                setForm({
-                  ...form,
-                  max_uses:e.target.value
-                })
-              }
-            />
-
-          </Field>
-
-          <Field label="Hết hạn sau (ngày)">
-
-            <input
-              type="number"
-              min="1"
-              value={form.expires_days}
-              onChange={e=>
-                setForm({
-                  ...form,
-                  expires_days:e.target.value
-                })
-              }
-            />
-
-          </Field>
-
-        </div>
 
         {error &&
           <div className="errorBox">
@@ -3547,7 +3725,6 @@ function ProjectFiles({project}){
 
     <p>
       Khu vực file chung của Project.
-      Có thể lưu Drive URL hoặc tích hợp Supabase Storage.
     </p>
 
     <div className="empty">
