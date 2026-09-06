@@ -22,33 +22,76 @@ export default function Home(){
 
   useEffect(()=>{
     if(!supabase){ setError('Thiếu biến môi trường Supabase.'); setLoading(false); return }
-    supabase.auth.getSession().then(({data})=>{ setSession(data.session); if(data.session) bootstrap(data.session.user); else setLoading(false) })
-    const {data:sub}=supabase.auth.onAuthStateChange((_e,s)=>{ setSession(s); if(s) bootstrap(s.user); else {setProfile(null);setMembership(null);setLoading(false)} })
+
+    supabase.auth.getSession().then(({data})=>{
+      setSession(data.session)
+      if(data.session) bootstrap(data.session.user)
+      else setLoading(false)
+    })
+
+    const {data:sub}=supabase.auth.onAuthStateChange((_e,s)=>{
+      setSession(s)
+      if(s) bootstrap(s.user)
+      else {
+        setProfile(null)
+        setMembership(null)
+        setLoading(false)
+      }
+    })
+
     return ()=>sub.subscription.unsubscribe()
   },[])
 
   useEffect(()=>{
     if(!supabase || !session?.user?.id) return
+
     const ch=supabase.channel('notifications-'+session.user.id)
-      .on('postgres_changes',{event:'*',schema:'public',table:'notifications',filter:`user_id=eq.${session.user.id}`},()=>bootstrap(session.user))
+      .on(
+        'postgres_changes',
+        {
+          event:'*',
+          schema:'public',
+          table:'notifications',
+          filter:`user_id=eq.${session.user.id}`
+        },
+        ()=>bootstrap(session.user)
+      )
       .subscribe()
+
     return()=>supabase.removeChannel(ch)
   },[session?.user?.id])
 
   async function bootstrap(user){
     try{
-      setLoading(true); setError('')
-      const invite = new URLSearchParams(window.location.search).get('invite') || sessionStorage.getItem('fptu_invite')
-      if(invite) sessionStorage.setItem('fptu_invite', invite)
+      setLoading(true)
+      setError('')
+
+      const invite =
+        new URLSearchParams(window.location.search).get('invite') ||
+        sessionStorage.getItem('fptu_invite')
 
       if(invite){
-        const {error:inviteError}=await supabase.rpc('accept_invitation',{p_token:invite})
-        if(inviteError) throw new Error('Không thể nhận lời mời: '+inviteError.message)
+        sessionStorage.setItem('fptu_invite', invite)
+
+        const {error:inviteError}=await supabase.rpc(
+          'accept_invitation',
+          {p_token:invite}
+        )
+
+        if(inviteError){
+          throw new Error(
+            'Không thể nhận lời mời: '+inviteError.message
+          )
+        }
 
         sessionStorage.removeItem('fptu_invite')
 
         if(window.location.search.includes('invite=')){
-          history.replaceState({},'',window.location.pathname)
+          history.replaceState(
+            {},
+            '',
+            window.location.pathname
+          )
         }
       }
 
@@ -58,12 +101,14 @@ export default function Home(){
         .eq('id',user.id)
         .single()
 
-      setProfile(p || {
-        id:user.id,
-        full_name:user.user_metadata?.full_name,
-        email:user.email,
-        avatar_url:user.user_metadata?.avatar_url
-      })
+      setProfile(
+        p || {
+          id:user.id,
+          full_name:user.user_metadata?.full_name,
+          email:user.email,
+          avatar_url:user.user_metadata?.avatar_url
+        }
+      )
 
       const {data:m}=await supabase
         .from('memberships')
@@ -134,7 +179,10 @@ export default function Home(){
       ])
 
       if(membersError && canManageWorkspace(m)){
-        throw new Error('Không tải được danh sách thành viên: '+membersError.message)
+        throw new Error(
+          'Không tải được danh sách thành viên: '+
+          membersError.message
+        )
       }
 
       const normalizedMembers = canManageWorkspace(m)
@@ -146,11 +194,13 @@ export default function Home(){
               email:x.email,
               avatar_url:x.avatar_url
             },
-            teams:x.team_id ? {
-              id:x.team_id,
-              name:x.team_name,
-              code:x.team_code
-            } : null
+            teams:x.team_id
+              ? {
+                  id:x.team_id,
+                  name:x.team_name,
+                  code:x.team_code
+                }
+              : null
           }))
         : (ms||[])
 
@@ -168,10 +218,15 @@ export default function Home(){
   }
 
   async function login(){
-    const invite = new URLSearchParams(window.location.search).get('invite')
+    const invite =
+      new URLSearchParams(window.location.search)
+        .get('invite')
 
     if(invite){
-      sessionStorage.setItem('fptu_invite',invite)
+      sessionStorage.setItem(
+        'fptu_invite',
+        invite
+      )
     }
 
     const redirectTo = invite
@@ -217,15 +272,22 @@ export default function Home(){
 
   async function createTeam(payload){
     if(!canManageWorkspace(membership)){
-      return {error:new Error('Chỉ Trưởng phòng được tạo Team')}
+      return {
+        error:new Error(
+          'Chỉ Trưởng phòng được tạo Team'
+        )
+      }
     }
 
-    const {data,error:e}=await supabase.rpc('create_team_safe',{
-      p_name:payload.name,
-      p_code:payload.code||null,
-      p_description:payload.description||null,
-      p_lead_id:payload.lead_id||null
-    })
+    const {data,error:e}=await supabase.rpc(
+      'create_team_safe',
+      {
+        p_name:payload.name,
+        p_code:payload.code||null,
+        p_description:payload.description||null,
+        p_lead_id:payload.lead_id||null
+      }
+    )
 
     if(e) return {error:e}
 
@@ -254,23 +316,31 @@ export default function Home(){
 
   async function createProject(payload){
     if(!canCreateProject(membership)){
-      return {error:new Error('Bạn chưa có quyền tạo Project')}
+      return {
+        error:new Error(
+          'Bạn chưa có quyền tạo Project'
+        )
+      }
     }
 
-    const {data,error:e}=await supabase.rpc('create_project_atomic',{
-      p_name:payload.name,
-      p_code:payload.code||null,
-      p_team_id:payload.team_id,
-      p_description:payload.description||null,
-      p_start_at:payload.start_at||null,
-      p_due_at:payload.due_at||null,
-      p_visibility:payload.visibility||'team',
-      p_require_task_review:payload.require_task_review!==false
-    })
+    const {data,error:e}=await supabase.rpc(
+      'create_project_atomic',
+      {
+        p_name:payload.name,
+        p_code:payload.code||null,
+        p_team_id:payload.team_id,
+        p_description:payload.description||null,
+        p_start_at:payload.start_at||null,
+        p_due_at:payload.due_at||null,
+        p_visibility:payload.visibility||'team',
+        p_require_task_review:
+          payload.require_task_review!==false
+      }
+    )
 
     if(e) return {error:e}
 
-    const id = data?.id || data
+    const id=data?.id||data
 
     const {data:created,error:readError}=await supabase
       .from('projects')
@@ -293,18 +363,24 @@ export default function Home(){
     return {data:created}
   }
 
-  const currentProjectMember = projectMembers.find(
-    x=>x.user_id===session?.user?.id
-  )
+  const currentProjectMember =
+    projectMembers.find(
+      x=>x.user_id===session?.user?.id
+    )
 
   const canTask = project
-    ? canCreateTask(membership,currentProjectMember)
+    ? canCreateTask(
+        membership,
+        currentProjectMember
+      )
     : false
 
   async function quickCreateTask(){
     const title=quickTitle.trim()
 
-    if(!title || !project || !canTask) return
+    if(!title || !project || !canTask){
+      return
+    }
 
     const {data:taskId,error:e}=await supabase.rpc(
       'create_project_task_safe',
@@ -316,7 +392,9 @@ export default function Home(){
     )
 
     if(e){
-      return alert('Không tạo được task: '+e.message)
+      return alert(
+        'Không tạo được task: '+e.message
+      )
     }
 
     const {data,error:readError}=await supabase
@@ -327,13 +405,16 @@ export default function Home(){
 
     if(readError){
       return alert(
-        'Task đã tạo nhưng không tải lại được: '+readError.message
+        'Task đã tạo nhưng không tải lại được: '+
+        readError.message
       )
     }
 
     setTasks([
       data,
-      ...tasks.filter(x=>x.id!==data.id)
+      ...tasks.filter(
+        x=>x.id!==data.id
+      )
     ])
 
     setQuickTitle('')
@@ -341,27 +422,60 @@ export default function Home(){
   }
 
   async function updateTask(id, patch){
-    const old=tasks.find(t=>t.id===id)
+    const old=tasks.find(
+      t=>t.id===id
+    )
 
     setTasks(
-      tasks.map(t=>t.id===id ? {...t,...patch} : t)
+      tasks.map(
+        t=>t.id===id
+          ? {...t,...patch}
+          : t
+      )
     )
 
     if(taskDrawer?.id===id){
-      setTaskDrawer({...taskDrawer,...patch})
+      setTaskDrawer({
+        ...taskDrawer,
+        ...patch
+      })
     }
 
     let e=null
 
-    if(Object.prototype.hasOwnProperty.call(patch,'assignee_id')){
+    if(
+      Object.prototype.hasOwnProperty.call(
+        patch,
+        'assignee_id'
+      )
+    ){
       const r=await supabase.rpc(
         'assign_task_safe',
         {
           p_task_id:id,
-          p_assignee_id:patch.assignee_id||null
+          p_assignee_id:
+            patch.assignee_id||null
         }
       )
+
       e=r.error
+
+    }else if(
+      Object.prototype.hasOwnProperty.call(
+        patch,
+        'status'
+      )
+    ){
+      const r=await supabase.rpc(
+        'update_task_status_safe',
+        {
+          p_task_id:id,
+          p_status:patch.status
+        }
+      )
+
+      e=r.error
+
     }else{
       const r=await supabase
         .from('tasks')
@@ -373,14 +487,21 @@ export default function Home(){
 
     if(e){
       setTasks(
-        tasks.map(t=>t.id===id ? old : t)
+        tasks.map(
+          t=>t.id===id
+            ? old
+            : t
+        )
       )
 
       if(taskDrawer?.id===id){
         setTaskDrawer(old)
       }
 
-      alert('Không lưu được task: '+e.message)
+      alert(
+        'Không lưu được task: '+
+        e.message
+      )
     }else{
       showToast('Đã lưu')
     }
@@ -398,11 +519,14 @@ export default function Home(){
     }
 
     const requireReview =
-      project?.require_task_review !== false
+      project?.require_task_review!==false
 
     const next =
       requireReview &&
-      !canReviewTask(membership,currentProjectMember)
+      !canReviewTask(
+        membership,
+        currentProjectMember
+      )
         ? 'review'
         : 'done'
 
@@ -410,7 +534,10 @@ export default function Home(){
       t.id,
       {
         status:next,
-        progress:next==='done' ? 100 : t.progress,
+        progress:
+          next==='done'
+            ? 100
+            : t.progress,
         completed_at:
           next==='done'
             ? new Date().toISOString()
@@ -421,32 +548,53 @@ export default function Home(){
 
   function showToast(msg){
     setToast(msg)
-    setTimeout(()=>setToast(''),2200)
+
+    setTimeout(
+      ()=>setToast(''),
+      2200
+    )
   }
 
-  const filtered = useMemo(
+  const filtered=useMemo(
     ()=>tasks.filter(
-      t=>`${t.code} ${t.title} ${t.profiles?.full_name||''}`
-        .toLowerCase()
-        .includes(search.toLowerCase())
+      t=>
+        `${t.code} ${t.title} ${t.profiles?.full_name||''}`
+          .toLowerCase()
+          .includes(
+            search.toLowerCase()
+          )
     ),
     [tasks,search]
   )
 
-  const stats = useMemo(()=>({
-    total:tasks.length,
-    done:tasks.filter(x=>x.status==='done').length,
-    review:tasks.filter(x=>x.status==='review').length,
-    overdue:tasks.filter(
-      x=>
-        x.due_at &&
-        new Date(x.due_at)<new Date() &&
-        x.status!=='done'
-    ).length
-  }),[tasks])
+  const stats=useMemo(
+    ()=>({
+      total:tasks.length,
+      done:
+        tasks.filter(
+          x=>x.status==='done'
+        ).length,
+      review:
+        tasks.filter(
+          x=>x.status==='review'
+        ).length,
+      overdue:
+        tasks.filter(
+          x=>
+            x.due_at &&
+            new Date(x.due_at)<new Date() &&
+            x.status!=='done'
+        ).length
+    }),
+    [tasks]
+  )
 
-  const progress = stats.total
-    ? Math.round(stats.done/stats.total*100)
+  const progress=stats.total
+    ? Math.round(
+        stats.done/
+        stats.total*
+        100
+      )
     : 0
 
   async function exportExcel(){
@@ -464,8 +612,11 @@ export default function Home(){
       Delivery:t.delivery_url||''
     }))
 
-    const ws=XLSX.utils.json_to_sheet(rows)
-    const wb=XLSX.utils.book_new()
+    const ws=
+      XLSX.utils.json_to_sheet(rows)
+
+    const wb=
+      XLSX.utils.book_new()
 
     XLSX.utils.book_append_sheet(
       wb,
@@ -504,27 +655,44 @@ export default function Home(){
   }
 
   return <div className="appShell">
+
     <aside className="sidebar">
 
       <div className="brand">
-        <div className="brandMark">F</div>
+        <div className="brandMark">
+          F
+        </div>
+
         <div>
-          <b>FPTU Work</b>
-          <small>Project Workspace</small>
+          <b>
+            FPTU Work
+          </b>
+
+          <small>
+            Project Workspace
+          </small>
         </div>
       </div>
 
       <nav>
 
         <button
-          className={view==='home'?'active':''}
+          className={
+            view==='home'
+              ? 'active'
+              : ''
+          }
           onClick={()=>setView('home')}
         >
           ⌂ <span>Home</span>
         </button>
 
         <button
-          className={view==='mytasks'?'active':''}
+          className={
+            view==='mytasks'
+              ? 'active'
+              : ''
+          }
           onClick={()=>setView('mytasks')}
         >
           ✓ <span>My Tasks</span>
@@ -532,7 +700,8 @@ export default function Home(){
 
         <button
           className={
-            view==='projects'||view==='project'
+            view==='projects' ||
+            view==='project'
               ? 'active'
               : ''
           }
@@ -545,15 +714,23 @@ export default function Home(){
         </button>
 
         <button
-          className={view==='teams'?'active':''}
+          className={
+            view==='teams'
+              ? 'active'
+              : ''
+          }
           onClick={()=>setView('teams')}
         >
           ♟ <span>Teams</span>
         </button>
 
-        {canManageWorkspace(membership)&&
+        {canManageWorkspace(membership) &&
           <button
-            className={view==='members'?'active':''}
+            className={
+              view==='members'
+                ? 'active'
+                : ''
+            }
             onClick={()=>setView('members')}
           >
             ♙ <span>Members</span>
@@ -561,7 +738,11 @@ export default function Home(){
         }
 
         <button
-          className={view==='reports'?'active':''}
+          className={
+            view==='reports'
+              ? 'active'
+              : ''
+          }
           onClick={()=>setView('reports')}
         >
           ▥ <span>Reports</span>
@@ -570,24 +751,42 @@ export default function Home(){
       </nav>
 
       <div className="sideProjects">
-        <div className="sectionLabel">PROJECTS</div>
 
-        {projects.slice(0,7).map(p=>
-          <button
-            key={p.id}
-            onClick={()=>openProject(p)}
-          >
-            <i/>
-            <span>{p.name}</span>
-          </button>
-        )}
+        <div className="sectionLabel">
+          PROJECTS
+        </div>
+
+        {projects
+          .slice(0,7)
+          .map(p=>
+            <button
+              key={p.id}
+              onClick={()=>openProject(p)}
+            >
+              <i/>
+
+              <span>
+                {p.name}
+              </span>
+            </button>
+          )
+        }
+
       </div>
 
       <div className="userMini">
+
         <Avatar p={profile}/>
 
         <div>
-          <b>{profile?.full_name||profile?.email}</b>
+
+          <b>
+            {
+              profile?.full_name ||
+              profile?.email
+            }
+          </b>
+
           <small>
             {
               membership.role==='manager'
@@ -597,9 +796,13 @@ export default function Home(){
                   : 'Member/CTV'
             }
           </small>
+
         </div>
 
-        <button onClick={logout}>↪</button>
+        <button onClick={logout}>
+          ↪
+        </button>
+
       </div>
 
     </aside>
@@ -609,7 +812,11 @@ export default function Home(){
       <header className="topbar">
 
         <div>
-          <b>{workspace?.name||'FPTU Work'}</b>
+
+          <b>
+            {workspace?.name||'FPTU Work'}
+          </b>
+
           <span className="crumb">
             {' / '}
             {
@@ -618,6 +825,7 @@ export default function Home(){
                 : view
             }
           </span>
+
         </div>
 
         <div className="topActions">
@@ -625,13 +833,24 @@ export default function Home(){
           <button
             className="iconBtn"
             title="Thông báo"
-            onClick={()=>setNotificationOpen(!notificationOpen)}
+            onClick={()=>
+              setNotificationOpen(
+                !notificationOpen
+              )
+            }
           >
             🔔
 
-            {notifications.filter(n=>!n.is_read).length>0 &&
+            {
+              notifications.filter(
+                n=>!n.is_read
+              ).length>0 &&
               <em>
-                {notifications.filter(n=>!n.is_read).length}
+                {
+                  notifications.filter(
+                    n=>!n.is_read
+                  ).length
+                }
               </em>
             }
           </button>
@@ -641,16 +860,22 @@ export default function Home(){
         </div>
 
       </header>
+
       {view==='projects' &&
         <Projects
           projects={projects}
           onOpen={openProject}
-          onCreate={()=>setProjectCreateOpen(true)}
-          canCreate={canCreateProject(membership)}
+          onCreate={()=>
+            setProjectCreateOpen(true)
+          }
+          canCreate={
+            canCreateProject(membership)
+          }
         />
       }
 
-      {view==='project' && project &&
+      {view==='project' &&
+        project &&
         <ProjectPage
           project={project}
           setProject={setProject}
@@ -672,8 +897,12 @@ export default function Home(){
           completeByCheckbox={completeByCheckbox}
           exportExcel={exportExcel}
           membership={membership}
-          currentProjectMember={currentProjectMember}
-          onProjectMembersChanged={()=>openProject(project)}
+          currentProjectMember={
+            currentProjectMember
+          }
+          onProjectMembersChanged={()=>
+            openProject(project)
+          }
         />
       }
 
@@ -695,8 +924,12 @@ export default function Home(){
         <Teams
           teams={teams}
           projects={projects}
-          canCreate={canManageWorkspace(membership)}
-          onCreate={()=>setTeamCreateOpen(true)}
+          canCreate={
+            canManageWorkspace(membership)
+          }
+          onCreate={()=>
+            setTeamCreateOpen(true)
+          }
         />
       }
 
@@ -706,7 +939,9 @@ export default function Home(){
           members={members}
           teams={teams}
           onOpen={setMemberDrawer}
-          onInvite={()=>setInviteOpen(true)}
+          onInvite={()=>
+            setInviteOpen(true)
+          }
         />
       }
 
@@ -725,8 +960,12 @@ export default function Home(){
         project={project}
         projectMembers={projectMembers}
         membership={membership}
-        currentProjectMember={currentProjectMember}
-        onClose={()=>setTaskDrawer(null)}
+        currentProjectMember={
+          currentProjectMember
+        }
+        onClose={()=>
+          setTaskDrawer(null)
+        }
         onUpdate={updateTask}
       />
     }
@@ -736,8 +975,12 @@ export default function Home(){
         item={memberDrawer}
         teams={teams}
         members={members}
-        onClose={()=>setMemberDrawer(null)}
-        onSaved={()=>bootstrap(session.user)}
+        onClose={()=>
+          setMemberDrawer(null)
+        }
+        onSaved={()=>
+          bootstrap(session.user)
+        }
       />
     }
 
@@ -745,7 +988,9 @@ export default function Home(){
       <ProjectCreateDrawer
         teams={teams}
         membership={membership}
-        onClose={()=>setProjectCreateOpen(false)}
+        onClose={()=>
+          setProjectCreateOpen(false)
+        }
         onCreate={createProject}
       />
     }
@@ -755,8 +1000,12 @@ export default function Home(){
         teams={teams}
         projects={projects}
         membership={membership}
-        onClose={()=>setInviteOpen(false)}
-        onCreated={()=>showToast('Đã tạo link mời')}
+        onClose={()=>
+          setInviteOpen(false)
+        }
+        onCreated={()=>
+          showToast('Đã tạo link mời')
+        }
       />
     }
 
@@ -764,15 +1013,21 @@ export default function Home(){
       <NotificationPanel
         notifications={notifications}
         prefs={notificationPrefs}
-        onClose={()=>setNotificationOpen(false)}
-        onChanged={()=>bootstrap(session.user)}
+        onClose={()=>
+          setNotificationOpen(false)
+        }
+        onChanged={()=>
+          bootstrap(session.user)
+        }
       />
     }
 
     {teamCreateOpen &&
       <TeamCreateDrawer
         members={members}
-        onClose={()=>setTeamCreateOpen(false)}
+        onClose={()=>
+          setTeamCreateOpen(false)
+        }
         onCreate={createTeam}
       />
     }
@@ -785,23 +1040,12 @@ export default function Home(){
 
   </div>
 }
-
 function Login({onLogin}){
   return <div className="loginPage">
-
     <div className="loginCard">
-
-      <div className="loginLogo">
-        F
-      </div>
-
-      <h1>
-        FPTU Work
-      </h1>
-
-      <p>
-        Project Management Workspace
-      </p>
+      <div className="loginLogo">F</div>
+      <h1>FPTU Work</h1>
+      <p>Project Management Workspace</p>
 
       <button
         className="googleBtn"
@@ -815,21 +1059,14 @@ function Login({onLogin}){
         Bất kỳ tài khoản Google nào cũng có thể đăng nhập.
         Quyền truy cập được kiểm soát bằng workspace/project membership.
       </small>
-
     </div>
-
   </div>
 }
 
 function NoMembership({profile,onLogout}){
   return <div className="loginPage">
-
     <div className="loginCard">
-
-      <Avatar
-        p={profile}
-        big
-      />
+      <Avatar p={profile} big/>
 
       <h2>
         {profile?.full_name}
@@ -846,9 +1083,7 @@ function NoMembership({profile,onLogout}){
       >
         Đăng xuất
       </button>
-
     </div>
-
   </div>
 }
 
@@ -860,11 +1095,7 @@ function Avatar({p,big}){
         alt=""
       />
     : <div
-        className={
-          big
-            ? 'avatar fallback big'
-            : 'avatar fallback'
-        }
+        className={big?'avatar fallback big':'avatar fallback'}
       >
         {initials(p?.full_name||p?.email)}
       </div>
@@ -879,12 +1110,8 @@ function Projects({
   return <section className="page">
 
     <div className="pageHead">
-
       <div>
-        <h1>
-          Projects
-        </h1>
-
+        <h1>Projects</h1>
         <p>
           Quản lý toàn bộ chiến dịch và không gian phối hợp công việc.
         </p>
@@ -898,7 +1125,6 @@ function Projects({
           ＋ New Project
         </button>
       }
-
     </div>
 
     <div className="projectGrid">
@@ -909,7 +1135,6 @@ function Projects({
           key={p.id}
           onClick={()=>onOpen(p)}
         >
-
           <div className="projectIcon">
             {(p.code||'P').slice(0,2)}
           </div>
@@ -924,15 +1149,10 @@ function Projects({
             </span>
           </div>
 
-          <h3>
-            {p.name}
-          </h3>
+          <h3>{p.name}</h3>
 
           <p>
-            {
-              p.description ||
-              'Chưa có mô tả. Click vào Project để bổ sung.'
-            }
+            {p.description||'Chưa có mô tả. Click vào Project để bổ sung.'}
           </p>
 
           <div className="projectFoot">
@@ -944,7 +1164,6 @@ function Projects({
               {fmtDate(p.due_at)}
             </span>
           </div>
-
         </article>
       )}
 
@@ -953,7 +1172,6 @@ function Projects({
           Chưa có Project nào.
         </div>
       }
-
     </div>
 
   </section>
@@ -992,7 +1210,6 @@ function ProjectPage({
     !!currentProjectMember?.can_manage_project_members
 
   async function saveDescription(){
-
     const v=prompt(
       'Mô tả Project',
       project.description||''
@@ -1273,32 +1490,16 @@ function ProjectPage({
 }
 
 function Stat({label,value,danger}){
-  return <div
-    className={
-      'stat '+(danger?'danger':'')
-    }
-  >
-    <span>
-      {label}
-    </span>
-
-    <b>
-      {value}
-    </b>
+  return <div className={'stat '+(danger?'danger':'')}>
+    <span>{label}</span>
+    <b>{value}</b>
   </div>
 }
 
 function Info({label,value}){
   return <div className="infoRow">
-
-    <span>
-      {label}
-    </span>
-
-    <b>
-      {value}
-    </b>
-
+    <span>{label}</span>
+    <b>{value}</b>
   </div>
 }
 
@@ -1326,17 +1527,9 @@ function TaskList({
       />
 
       <div className="chips">
-        <button>
-          My tasks
-        </button>
-
-        <button>
-          Overdue
-        </button>
-
-        <button>
-          Review
-        </button>
+        <button>My tasks</button>
+        <button>Overdue</button>
+        <button>Review</button>
       </div>
 
     </div>
@@ -1373,13 +1566,8 @@ function TaskList({
           className="taskTitle"
           onClick={()=>openTask(t)}
         >
-          <b>
-            {t.title}
-          </b>
-
-          <small>
-            {t.code}
-          </small>
+          <b>{t.title}</b>
+          <small>{t.code}</small>
         </button>
 
         <select
@@ -1452,9 +1640,26 @@ function TaskList({
           )}
         </select>
 
-        <span className={'statusBadge '+t.status}>
-          {LABEL[t.status]}
-        </span>
+        <select
+          value={t.status}
+          onChange={e=>
+            updateTask(
+              t.id,
+              {
+                status:e.target.value
+              }
+            )
+          }
+        >
+          {STATUS.map(x=>
+            <option
+              key={x}
+              value={x}
+            >
+              {LABEL[x]}
+            </option>
+          )}
+        </select>
 
       </div>
     )}
@@ -1462,9 +1667,7 @@ function TaskList({
     {canTask &&
       <div className="quickAdd">
 
-        <span>
-          ＋
-        </span>
+        <span>＋</span>
 
         <input
           placeholder="Thêm task và nhấn Enter..."
@@ -1481,6 +1684,7 @@ function TaskList({
 
   </div>
 }
+
 function Kanban({
   tasks,
   openTask,
@@ -1500,11 +1704,7 @@ function Kanban({
             updateTask(
               id,
               {
-                status:s,
-                completed_at:
-                  s==='done'
-                    ? new Date().toISOString()
-                    : null
+                status:s
               }
             )
           }
@@ -1512,11 +1712,7 @@ function Kanban({
       >
 
         <div className="kanbanHead">
-
-          <b>
-            {LABEL[s]}
-          </b>
-
+          <b>{LABEL[s]}</b>
           <span>
             {
               tasks.filter(
@@ -1524,7 +1720,6 @@ function Kanban({
               ).length
             }
           </span>
-
         </div>
 
         {tasks
@@ -1977,9 +2172,7 @@ function TaskDrawer({
 
 function Field({label,children}){
   return <label className="field">
-    <span>
-      {label}
-    </span>
+    <span>{label}</span>
     {children}
   </label>
 }
@@ -1993,13 +2186,8 @@ function HomeDashboard({
     <div className="pageHead">
 
       <div>
-        <h1>
-          Home
-        </h1>
-
-        <p>
-          Tổng quan workspace.
-        </p>
+        <h1>Home</h1>
+        <p>Tổng quan workspace.</p>
       </div>
 
     </div>
@@ -2076,10 +2264,7 @@ function MyTasks({
     <div className="pageHead">
 
       <div>
-        <h1>
-          My Tasks
-        </h1>
-
+        <h1>My Tasks</h1>
         <p>
           Task của bạn từ tất cả Project.
         </p>
@@ -2111,9 +2296,7 @@ function MyTasks({
 
                 <span>
 
-                  <b>
-                    {t.title}
-                  </b>
+                  <b>{t.title}</b>
 
                   <small>
                     {t.project?.name||'Personal task'}
@@ -2155,15 +2338,11 @@ function Teams({
     <div className="pageHead">
 
       <div>
-
-        <h1>
-          Teams
-        </h1>
+        <h1>Teams</h1>
 
         <p>
           Team, Team Lead, Project và workload trong workspace.
         </p>
-
       </div>
 
       {canCreate &&
@@ -2259,7 +2438,6 @@ function Members({
     <div className="pageHead">
 
       <div>
-
         <h1>
           Members & Permissions
         </h1>
@@ -2267,7 +2445,6 @@ function Members({
         <p>
           Trưởng phòng quản lý role, team, quyền mở rộng và link mời.
         </p>
-
       </div>
 
       <button
@@ -2330,15 +2507,11 @@ function Reports({
     <div className="pageHead">
 
       <div>
-
-        <h1>
-          Reports
-        </h1>
+        <h1>Reports</h1>
 
         <p>
           Report theo Project, Team, Member và deadline.
         </p>
-
       </div>
 
     </div>
@@ -2598,65 +2771,6 @@ function MemberDrawer({
           }
         </button>
 
-        <section className="dangerZone">
-
-          <h3>
-            Rời / Remove workspace
-          </h3>
-
-          <p>
-            Không hard-delete user.
-            Task, comment và activity cũ vẫn được giữ.
-          </p>
-
-          <Field label="Bàn giao task active cho">
-
-            <select
-              value={reassignTo}
-              onChange={e=>setReassignTo(e.target.value)}
-            >
-
-              <option value="">
-                Chưa chọn — chỉ remove nếu không còn task active
-              </option>
-
-              {members
-                .filter(
-                  m=>
-                    m.id!==item.id &&
-                    m.status==='active'
-                )
-                .map(m=>
-                  <option
-                    key={m.user_id}
-                    value={m.user_id}
-                  >
-                    {
-                      m.profiles?.full_name ||
-                      m.profiles?.email
-                    }
-                  </option>
-                )
-              }
-
-            </select>
-
-          </Field>
-
-          <button
-            className="dangerButton full"
-            disabled={removing}
-            onClick={removeMember}
-          >
-            {
-              removing
-                ? 'Đang xử lý...'
-                : 'Remove khỏi workspace'
-            }
-          </button>
-
-        </section>
-
       </div>
 
     </aside>
@@ -2671,8 +2785,11 @@ function ProjectMemberDrawer({
   onClose,
   onSaved
 }){
+
   const existingIds=new Set(
-    (projectMembers||[]).map(x=>x.user_id)
+    (projectMembers||[]).map(
+      x=>x.user_id
+    )
   )
 
   const available=(workspaceMembers||[])
@@ -2763,7 +2880,9 @@ function ProjectMemberDrawer({
 
           <select
             value={userId}
-            onChange={e=>setUserId(e.target.value)}
+            onChange={e=>
+              setUserId(e.target.value)
+            }
           >
 
             {!available.length &&
@@ -2797,7 +2916,9 @@ function ProjectMemberDrawer({
 
           <select
             value={role}
-            onChange={e=>setRole(e.target.value)}
+            onChange={e=>
+              setRole(e.target.value)
+            }
           >
 
             <option value="member">
@@ -2826,7 +2947,9 @@ function ProjectMemberDrawer({
             type="checkbox"
             checked={canCreateTask}
             onChange={e=>
-              setCanCreateTask(e.target.checked)
+              setCanCreateTask(
+                e.target.checked
+              )
             }
           />
 
@@ -2842,7 +2965,9 @@ function ProjectMemberDrawer({
             type="checkbox"
             checked={canAssignTask}
             onChange={e=>
-              setCanAssignTask(e.target.checked)
+              setCanAssignTask(
+                e.target.checked
+              )
             }
           />
 
@@ -2858,7 +2983,9 @@ function ProjectMemberDrawer({
             type="checkbox"
             checked={canManageMembers}
             onChange={e=>
-              setCanManageMembers(e.target.checked)
+              setCanManageMembers(
+                e.target.checked
+              )
             }
           />
 
@@ -2923,7 +3050,8 @@ function NotificationPanel({
 
   async function markAll(){
 
-    const {data:{user}}=await supabase.auth.getUser()
+    const {data:{user}}=
+      await supabase.auth.getUser()
 
     if(!user) return
 
@@ -2940,7 +3068,8 @@ function NotificationPanel({
 
   async function savePrefs(){
 
-    const {data:{user}}=await supabase.auth.getUser()
+    const {data:{user}}=
+      await supabase.auth.getUser()
 
     if(!user) return
 
@@ -2968,10 +3097,7 @@ function NotificationPanel({
     <div className="notificationHead">
 
       <div>
-
-        <b>
-          Thông báo
-        </b>
+        <b>Thông báo</b>
 
         <small>
           {
@@ -2982,7 +3108,6 @@ function NotificationPanel({
           {' '}
           chưa đọc
         </small>
-
       </div>
 
       <div>
@@ -3123,7 +3248,6 @@ function TeamCreateDrawer({
                 name:e.target.value
               })
             }
-            placeholder="VD: Production"
           />
 
         </Field>
@@ -3139,7 +3263,6 @@ function TeamCreateDrawer({
                 code:e.target.value
               })
             }
-            placeholder="VD: PROD"
           />
 
         </Field>
@@ -3541,7 +3664,6 @@ function InviteDrawer({
       `${appUrl}/?invite=${encodeURIComponent(token)}`
 
     setLink(url)
-
     onCreated?.()
   }
 
@@ -3663,6 +3785,42 @@ function InviteDrawer({
 
         </Field>
 
+        <div className="fieldGrid">
+
+          <Field label="Số lượt dùng">
+
+            <input
+              type="number"
+              min="1"
+              value={form.max_uses}
+              onChange={e=>
+                setForm({
+                  ...form,
+                  max_uses:e.target.value
+                })
+              }
+            />
+
+          </Field>
+
+          <Field label="Hết hạn sau (ngày)">
+
+            <input
+              type="number"
+              min="1"
+              value={form.expires_days}
+              onChange={e=>
+                setForm({
+                  ...form,
+                  expires_days:e.target.value
+                })
+              }
+            />
+
+          </Field>
+
+        </div>
+
         {error &&
           <div className="errorBox">
             {error}
@@ -3716,7 +3874,7 @@ function InviteDrawer({
   </div>
 }
 
-function ProjectFiles({project}){
+function ProjectFiles(){
   return <div className="panel">
 
     <h3>
@@ -3746,7 +3904,9 @@ function ProjectActivity({project}){
       .eq('project_id',project.id)
       .order('created_at',{ascending:false})
       .limit(100)
-      .then(({data})=>setRows(data||[]))
+      .then(({data})=>
+        setRows(data||[])
+      )
 
   },[project.id])
 
@@ -3763,9 +3923,7 @@ function ProjectActivity({project}){
             key={x.id}
           >
 
-            <span>
-              •
-            </span>
+            <span>•</span>
 
             <div>
               {x.action}
