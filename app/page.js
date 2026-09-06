@@ -185,7 +185,13 @@ export default function Home(){
     {taskDrawer&&<TaskDrawer task={taskDrawer} project={project} projectMembers={projectMembers} membership={membership} currentProjectMember={currentProjectMember} onClose={()=>setTaskDrawer(null)} onUpdate={updateTask}/>} 
     {memberDrawer&&<MemberDrawer item={memberDrawer} teams={teams} members={members} onClose={()=>setMemberDrawer(null)} onSaved={()=>bootstrap(session.user)}/>} 
     {projectCreateOpen&&<ProjectCreateDrawer teams={teams} membership={membership} onClose={()=>setProjectCreateOpen(false)} onCreate={createProject}/>}
-    {inviteOpen&&<InviteDrawer teams={teams} projects={projects} membership={membership} onClose={()=>setInviteOpen(false)} onCreated={()=>bootstrap(session.user)}/>}
+    {inviteOpen&&<InviteDrawer
+  teams={teams}
+  projects={projects}
+  membership={membership}
+  onClose={()=>setInviteOpen(false)}
+  onCreated={()=>showToast('Đã tạo link mời')}
+/>}
     {notificationOpen&&<NotificationPanel notifications={notifications} prefs={notificationPrefs} onClose={()=>setNotificationOpen(false)} onChanged={()=>bootstrap(session.user)} />}
     {teamCreateOpen&&<TeamCreateDrawer members={members} onClose={()=>setTeamCreateOpen(false)} onCreate={createTeam}/>}
     {toast&&<div className="toast">✓ {toast}</div>}
