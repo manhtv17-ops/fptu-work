@@ -1,51 +1,159 @@
 'use client'
+
 import { useEffect, useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase, appUrl } from '../lib/supabase'
-import { canCreateProject, canManageWorkspace, canCreateTask, canReviewTask } from '../lib/permissions'
+import {
+  canManageWorkspace,
+  canReviewTask
+} from '../lib/permissions'
 
 const STATUS = ['todo','in_progress','review','done']
-const LABEL = { todo:'To-do', in_progress:'In Progress', review:'Review', done:'Done', planning:'Planning', active:'Active', on_hold:'On Hold', completed:'Completed', cancelled:'Cancelled', archived:'Archived' }
-const PRIORITY = { low:'Low', medium:'Medium', high:'High', urgent:'Urgent' }
 
-function fmtDate(v){ if(!v) return '—'; return new Intl.DateTimeFormat('vi-VN',{day:'2-digit',month:'2-digit',year:'numeric'}).format(new Date(v)) }
-function fmtDateTime(v){ if(!v) return ''; return new Intl.DateTimeFormat('vi-VN',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}).format(new Date(v)) }
-function initials(name=''){ return name.split(' ').slice(-2).map(x=>x[0]).join('').toUpperCase() || '?' }
+const LABEL = {
+  todo:'To-do',
+  in_progress:'In Progress',
+  review:'Review',
+  done:'Done',
+  planning:'Planning',
+  active:'Active',
+  on_hold:'On Hold',
+  completed:'Completed',
+  cancelled:'Cancelled',
+  archived:'Archived'
+}
+
+const PRIORITY = {
+  low:'Low',
+  medium:'Medium',
+  high:'High',
+  urgent:'Urgent'
+}
+
+function fmtDate(v){
+  if(!v) return '—'
+  return new Intl.DateTimeFormat(
+    'vi-VN',
+    {
+      day:'2-digit',
+      month:'2-digit',
+      year:'numeric'
+    }
+  ).format(new Date(v))
+}
+
+function fmtDateTime(v){
+  if(!v) return ''
+  return new Intl.DateTimeFormat(
+    'vi-VN',
+    {
+      day:'2-digit',
+      month:'2-digit',
+      year:'numeric',
+      hour:'2-digit',
+      minute:'2-digit'
+    }
+  ).format(new Date(v))
+}
+
+function initials(name=''){
+  return name
+    .split(' ')
+    .slice(-2)
+    .map(x=>x[0])
+    .join('')
+    .toUpperCase() || '?'
+}
 
 export default function Home(){
-  const [session,setSession]=useState(null), [loading,setLoading]=useState(true), [error,setError]=useState('')
-  const [profile,setProfile]=useState(null), [membership,setMembership]=useState(null), [workspace,setWorkspace]=useState(null)
-  const [projects,setProjects]=useState([]), [project,setProject]=useState(null), [projectMembers,setProjectMembers]=useState([]), [tasks,setTasks]=useState([])
-  const [members,setMembers]=useState([]), [teams,setTeams]=useState([]), [view,setView]=useState('projects'), [projectTab,setProjectTab]=useState('overview')
-  const [taskDrawer,setTaskDrawer]=useState(null), [memberDrawer,setMemberDrawer]=useState(null), [projectCreateOpen,setProjectCreateOpen]=useState(false), [inviteOpen,setInviteOpen]=useState(false), [teamCreateOpen,setTeamCreateOpen]=useState(false), [search,setSearch]=useState(''), [quickTitle,setQuickTitle]=useState('')
-  const [toast,setToast]=useState(''), [notifications,setNotifications]=useState([]), [notificationOpen,setNotificationOpen]=useState(false), [notificationPrefs,setNotificationPrefs]=useState(null)
+
+  const [session,setSession]=useState(null)
+  const [loading,setLoading]=useState(true)
+  const [error,setError]=useState('')
+
+  const [profile,setProfile]=useState(null)
+  const [membership,setMembership]=useState(null)
+  const [workspace,setWorkspace]=useState(null)
+
+  const [projects,setProjects]=useState([])
+  const [project,setProject]=useState(null)
+  const [projectMembers,setProjectMembers]=useState([])
+  const [tasks,setTasks]=useState([])
+
+  const [members,setMembers]=useState([])
+  const [teams,setTeams]=useState([])
+
+  const [view,setView]=useState('projects')
+  const [projectTab,setProjectTab]=useState('overview')
+
+  const [taskDrawer,setTaskDrawer]=useState(null)
+  const [memberDrawer,setMemberDrawer]=useState(null)
+  const [projectCreateOpen,setProjectCreateOpen]=useState(false)
+  const [inviteOpen,setInviteOpen]=useState(false)
+  const [teamCreateOpen,setTeamCreateOpen]=useState(false)
+
+  const [search,setSearch]=useState('')
+  const [quickTitle,setQuickTitle]=useState('')
+
+  const [toast,setToast]=useState('')
+  const [notifications,setNotifications]=useState([])
+  const [notificationOpen,setNotificationOpen]=useState(false)
+  const [notificationPrefs,setNotificationPrefs]=useState(null)
+
+  const [taskFilter,setTaskFilter]=useState('all')
 
   useEffect(()=>{
-    if(!supabase){ setError('Thiếu biến môi trường Supabase.'); setLoading(false); return }
+    if(!supabase){
+      setError('Thiếu biến môi trường Supabase.')
+      setLoading(false)
+      return
+    }
 
-    supabase.auth.getSession().then(({data})=>{
-      setSession(data.session)
-      if(data.session) bootstrap(data.session.user)
-      else setLoading(false)
-    })
+    supabase.auth.getSession()
+      .then(({data})=>{
+        setSession(data.session)
 
-    const {data:sub}=supabase.auth.onAuthStateChange((_e,s)=>{
-      setSession(s)
-      if(s) bootstrap(s.user)
-      else {
-        setProfile(null)
-        setMembership(null)
-        setLoading(false)
+        if(data.session){
+          bootstrap(data.session.user)
+        }else{
+          setLoading(false)
+        }
+      })
+
+    const {data:sub}=supabase.auth.onAuthStateChange(
+      (_e,s)=>{
+        setSession(s)
+
+        if(s){
+          bootstrap(s.user)
+        }else{
+          setProfile(null)
+          setMembership(null)
+          setLoading(false)
+        }
       }
-    })
+    )
 
     return ()=>sub.subscription.unsubscribe()
   },[])
 
   useEffect(()=>{
+    if(!membership) return
+
+    if(membership.role==='member'){
+      setTaskFilter('my')
+    }else{
+      setTaskFilter('all')
+    }
+  },[membership?.role])
+
+  useEffect(()=>{
     if(!supabase || !session?.user?.id) return
 
-    const ch=supabase.channel('notifications-'+session.user.id)
+    const ch=supabase
+      .channel(
+        'notifications-'+session.user.id
+      )
       .on(
         'postgres_changes',
         {
@@ -58,35 +166,56 @@ export default function Home(){
       )
       .subscribe()
 
-    return()=>supabase.removeChannel(ch)
+    return ()=>supabase.removeChannel(ch)
+
   },[session?.user?.id])
 
   async function bootstrap(user){
     try{
+
       setLoading(true)
       setError('')
 
       const invite =
-        new URLSearchParams(window.location.search).get('invite') ||
-        sessionStorage.getItem('fptu_invite')
+        new URLSearchParams(
+          window.location.search
+        ).get('invite')
+        ||
+        sessionStorage.getItem(
+          'fptu_invite'
+        )
 
       if(invite){
-        sessionStorage.setItem('fptu_invite', invite)
 
-        const {error:inviteError}=await supabase.rpc(
+        sessionStorage.setItem(
+          'fptu_invite',
+          invite
+        )
+
+        const {
+          error:inviteError
+        } = await supabase.rpc(
           'accept_invitation',
-          {p_token:invite}
+          {
+            p_token:invite
+          }
         )
 
         if(inviteError){
           throw new Error(
-            'Không thể nhận lời mời: '+inviteError.message
+            'Không thể nhận lời mời: '+
+            inviteError.message
           )
         }
 
-        sessionStorage.removeItem('fptu_invite')
+        sessionStorage.removeItem(
+          'fptu_invite'
+        )
 
-        if(window.location.search.includes('invite=')){
+        if(
+          window.location.search
+            .includes('invite=')
+        ){
           history.replaceState(
             {},
             '',
@@ -104,9 +233,11 @@ export default function Home(){
       setProfile(
         p || {
           id:user.id,
-          full_name:user.user_metadata?.full_name,
+          full_name:
+            user.user_metadata?.full_name,
           email:user.email,
-          avatar_url:user.user_metadata?.avatar_url
+          avatar_url:
+            user.user_metadata?.avatar_url
         }
       )
 
@@ -133,33 +264,69 @@ export default function Home(){
 
       setWorkspace(w)
 
-      const memberQuery = canManageWorkspace(m)
-        ? supabase.rpc('get_workspace_members_safe')
-        : supabase
-            .from('memberships')
-            .select('*, profiles(*), teams(*)')
-            .eq('workspace_id',m.workspace_id)
-            .eq('status','active')
+      const memberQuery =
+        canManageWorkspace(m)
+          ? supabase.rpc(
+              'get_workspace_members_safe'
+            )
+          : supabase
+              .from('memberships')
+              .select(
+                '*, profiles(*), teams(*)'
+              )
+              .eq(
+                'workspace_id',
+                m.workspace_id
+              )
+              .eq(
+                'status',
+                'active'
+              )
 
       const [
         {data:ps},
         {data:ts},
-        {data:ms,error:membersError},
+        {
+          data:ms,
+          error:membersError
+        },
         {data:ns},
         {data:np}
       ] = await Promise.all([
+
         supabase
           .from('projects')
-          .select('*, teams(name,code), profiles!projects_lead_id_fkey(full_name,avatar_url)')
-          .eq('workspace_id',m.workspace_id)
-          .is('archived_at',null)
-          .order('created_at',{ascending:false}),
+          .select(
+            '*, teams(name,code), profiles!projects_lead_id_fkey(full_name,avatar_url)'
+          )
+          .eq(
+            'workspace_id',
+            m.workspace_id
+          )
+          .is(
+            'archived_at',
+            null
+          )
+          .order(
+            'created_at',
+            {
+              ascending:false
+            }
+          ),
 
         supabase
           .from('teams')
-          .select('*, lead:profiles!teams_lead_id_fkey(full_name,email,avatar_url)')
-          .eq('workspace_id',m.workspace_id)
-          .is('archived_at',null)
+          .select(
+            '*, lead:profiles!teams_lead_id_fkey(full_name,email,avatar_url)'
+          )
+          .eq(
+            'workspace_id',
+            m.workspace_id
+          )
+          .is(
+            'archived_at',
+            null
+          )
           .order('name'),
 
         memberQuery,
@@ -167,48 +334,70 @@ export default function Home(){
         supabase
           .from('notifications')
           .select('*')
-          .eq('user_id',user.id)
-          .order('created_at',{ascending:false})
+          .eq(
+            'user_id',
+            user.id
+          )
+          .order(
+            'created_at',
+            {
+              ascending:false
+            }
+          )
           .limit(30),
 
         supabase
-          .from('notification_preferences')
+          .from(
+            'notification_preferences'
+          )
           .select('*')
-          .eq('user_id',user.id)
+          .eq(
+            'user_id',
+            user.id
+          )
           .maybeSingle()
+
       ])
 
-      if(membersError && canManageWorkspace(m)){
+      if(
+        membersError &&
+        canManageWorkspace(m)
+      ){
         throw new Error(
           'Không tải được danh sách thành viên: '+
           membersError.message
         )
       }
 
-      const normalizedMembers = canManageWorkspace(m)
-        ? (ms||[]).map(x=>({
-            ...x,
-            profiles:{
-              id:x.user_id,
-              full_name:x.full_name,
-              email:x.email,
-              avatar_url:x.avatar_url
-            },
-            teams:x.team_id
-              ? {
-                  id:x.team_id,
-                  name:x.team_name,
-                  code:x.team_code
-                }
-              : null
-          }))
-        : (ms||[])
+      const normalizedMembers =
+        canManageWorkspace(m)
+          ? (ms||[]).map(
+              x=>({
+                ...x,
+                profiles:{
+                  id:x.user_id,
+                  full_name:x.full_name,
+                  email:x.email,
+                  avatar_url:x.avatar_url
+                },
+                teams:
+                  x.team_id
+                    ? {
+                        id:x.team_id,
+                        name:x.team_name,
+                        code:x.team_code
+                      }
+                    : null
+              })
+            )
+          : (ms||[])
 
       setProjects(ps||[])
       setTeams(ts||[])
       setMembers(normalizedMembers)
       setNotifications(ns||[])
       setNotificationPrefs(np||null)
+
       setLoading(false)
 
     }catch(e){
@@ -218,9 +407,11 @@ export default function Home(){
   }
 
   async function login(){
+
     const invite =
-      new URLSearchParams(window.location.search)
-        .get('invite')
+      new URLSearchParams(
+        window.location.search
+      ).get('invite')
 
     if(invite){
       sessionStorage.setItem(
@@ -229,14 +420,18 @@ export default function Home(){
       )
     }
 
-    const redirectTo = invite
-      ? `${appUrl}/?invite=${encodeURIComponent(invite)}`
-      : appUrl
+    const redirectTo =
+      invite
+        ? `${appUrl}/?invite=${encodeURIComponent(invite)}`
+        : appUrl
 
-    await supabase.auth.signInWithOAuth({
-      provider:'google',
-      options:{redirectTo}
-    })
+    await supabase.auth
+      .signInWithOAuth({
+        provider:'google',
+        options:{
+          redirectTo
+        }
+      })
   }
 
   async function logout(){
@@ -244,34 +439,111 @@ export default function Home(){
     location.href='/'
   }
 
+  function isProjectLead(p,pmList){
+    return (
+      p?.lead_id===session?.user?.id
+      ||
+      (pmList||[]).some(
+        x=>
+          x.user_id===session?.user?.id
+          &&
+          x.role_in_project==='lead'
+      )
+    )
+  }
+
   async function openProject(p){
+
     setProject(p)
     setView('project')
     setProjectTab('overview')
 
-    const [
-      {data:pm},
-      {data:t}
-    ] = await Promise.all([
-      supabase
-        .from('project_members')
-        .select('*, profiles(*)')
-        .eq('project_id',p.id),
+    const {data:pm}=await supabase
+      .from('project_members')
+      .select(
+        '*, profiles(*)'
+      )
+      .eq(
+        'project_id',
+        p.id
+      )
 
-      supabase
-        .from('tasks')
-        .select('*, profiles!tasks_assignee_id_fkey(full_name,avatar_url,email), project:projects(name,code)')
-        .eq('project_id',p.id)
-        .is('archived_at',null)
-        .order('created_at',{ascending:false})
-    ])
+    const projectMemberList=pm||[]
 
-    setProjectMembers(pm||[])
-    setTasks(t||[])
+    const userIsProjectLead =
+      isProjectLead(
+        p,
+        projectMemberList
+      )
+
+    const canSeeAllTasks =
+      membership?.role==='manager'
+      ||
+      membership?.role==='team_lead'
+      ||
+      userIsProjectLead
+
+    let taskQuery=supabase
+      .from('tasks')
+      .select(
+        '*, profiles!tasks_assignee_id_fkey(full_name,avatar_url,email), project:projects(name,code)'
+      )
+      .eq(
+        'project_id',
+        p.id
+      )
+      .is(
+        'archived_at',
+        null
+      )
+
+    if(!canSeeAllTasks){
+      taskQuery=taskQuery.eq(
+        'assignee_id',
+        session.user.id
+      )
+    }
+
+    const {
+      data:t,
+      error:taskError
+    } = await taskQuery
+      .order(
+        'created_at',
+        {
+          ascending:false
+        }
+      )
+
+    if(taskError){
+      alert(
+        'Không tải được task: '+
+        taskError.message
+      )
+    }
+
+    setProjectMembers(
+      projectMemberList
+    )
+
+    setTasks(
+      t||[]
+    )
+
+    if(canSeeAllTasks){
+      setTaskFilter('all')
+    }else{
+      setTaskFilter('my')
+    }
   }
 
   async function createTeam(payload){
-    if(!canManageWorkspace(membership)){
+
+    if(
+      !canManageWorkspace(
+        membership
+      )
+    ){
       return {
         error:new Error(
           'Chỉ Trưởng phòng được tạo Team'
@@ -279,128 +551,237 @@ export default function Home(){
       }
     }
 
-    const {data,error:e}=await supabase.rpc(
+    const {
+      data,
+      error:e
+    } = await supabase.rpc(
       'create_team_safe',
       {
         p_name:payload.name,
-        p_code:payload.code||null,
-        p_description:payload.description||null,
-        p_lead_id:payload.lead_id||null
+        p_code:
+          payload.code||null,
+        p_description:
+          payload.description||null,
+        p_lead_id:
+          payload.lead_id||null
       }
     )
 
-    if(e) return {error:e}
-
-    const id=data?.id||data
-
-    const {data:created,error:readError}=await supabase
-      .from('teams')
-      .select('*, lead:profiles!teams_lead_id_fkey(full_name,email,avatar_url)')
-      .eq('id',id)
-      .single()
-
-    if(readError) return {error:readError}
-
-    setTeams(prev=>[
-      created,
-      ...prev.filter(x=>x.id!==created.id)
-    ].sort((a,b)=>a.name.localeCompare(b.name)))
-
-    showToast('Đã tạo Team')
-    setTeamCreateOpen(false)
-
-    await bootstrap(session.user)
-
-    return {data:created}
-  }
-
-  async function createProject(payload){
-    if(!canCreateProject(membership)){
+    if(e){
       return {
-        error:new Error(
-          'Bạn chưa có quyền tạo Project'
-        )
+        error:e
       }
     }
 
-    const {data,error:e}=await supabase.rpc(
+    const id=data?.id||data
+
+    const {
+      data:created,
+      error:readError
+    } = await supabase
+      .from('teams')
+      .select(
+        '*, lead:profiles!teams_lead_id_fkey(full_name,email,avatar_url)'
+      )
+      .eq(
+        'id',
+        id
+      )
+      .single()
+
+    if(readError){
+      return {
+        error:readError
+      }
+    }
+
+    setTeams(
+      prev=>[
+        created,
+        ...prev.filter(
+          x=>x.id!==created.id
+        )
+      ].sort(
+        (a,b)=>
+          a.name.localeCompare(
+            b.name
+          )
+      )
+    )
+
+    showToast(
+      'Đã tạo Team'
+    )
+
+    setTeamCreateOpen(false)
+
+    await bootstrap(
+      session.user
+    )
+
+    return {
+      data:created
+    }
+  }
+
+  async function createProject(payload){
+
+    const {
+      data,
+      error:e
+    } = await supabase.rpc(
       'create_project_atomic',
       {
         p_name:payload.name,
-        p_code:payload.code||null,
-        p_team_id:payload.team_id,
-        p_description:payload.description||null,
-        p_start_at:payload.start_at||null,
-        p_due_at:payload.due_at||null,
-        p_visibility:payload.visibility||'team',
+        p_code:
+          payload.code||null,
+        p_team_id:
+          payload.team_id,
+        p_description:
+          payload.description||null,
+        p_start_at:
+          payload.start_at||null,
+        p_due_at:
+          payload.due_at||null,
+        p_visibility:
+          payload.visibility||'team',
         p_require_task_review:
           payload.require_task_review!==false
       }
     )
 
-    if(e) return {error:e}
+    if(e){
+      return {
+        error:e
+      }
+    }
 
     const id=data?.id||data
 
-    const {data:created,error:readError}=await supabase
+    const {
+      data:created,
+      error:readError
+    } = await supabase
       .from('projects')
-      .select('*, teams(name,code), profiles!projects_lead_id_fkey(full_name,avatar_url)')
-      .eq('id',id)
+      .select(
+        '*, teams(name,code), profiles!projects_lead_id_fkey(full_name,avatar_url)'
+      )
+      .eq(
+        'id',
+        id
+      )
       .single()
 
-    if(readError) return {error:readError}
+    if(readError){
+      return {
+        error:readError
+      }
+    }
 
-    setProjects(prev=>[
-      created,
-      ...prev.filter(x=>x.id!==created.id)
-    ])
+    setProjects(
+      prev=>[
+        created,
+        ...prev.filter(
+          x=>x.id!==created.id
+        )
+      ]
+    )
 
-    showToast('Đã tạo Project')
+    showToast(
+      'Đã tạo Project'
+    )
+
     setProjectCreateOpen(false)
 
-    await openProject(created)
+    await openProject(
+      created
+    )
 
-    return {data:created}
+    return {
+      data:created
+    }
   }
 
   const currentProjectMember =
     projectMembers.find(
-      x=>x.user_id===session?.user?.id
+      x=>
+        x.user_id===
+        session?.user?.id
     )
 
-  const canTask = project
-    ? canCreateTask(
-        membership,
-        currentProjectMember
-      )
-    : false
+  const currentUserIsProjectLead =
+    project
+      ? (
+          project.lead_id===
+            session?.user?.id
+          ||
+          currentProjectMember
+            ?.role_in_project==='lead'
+        )
+      : false
+
+  const canTask =
+    !!project
+    &&
+    (
+      membership?.role==='manager'
+      ||
+      membership?.role==='team_lead'
+      ||
+      currentProjectMember
+        ?.can_create_task===true
+      ||
+      currentUserIsProjectLead
+    )
 
   async function quickCreateTask(){
-    const title=quickTitle.trim()
 
-    if(!title || !project || !canTask){
+    const title=
+      quickTitle.trim()
+
+    if(
+      !title
+      ||
+      !project
+      ||
+      !canTask
+    ){
       return
     }
 
-    const {data:taskId,error:e}=await supabase.rpc(
+    const {
+      data:taskId,
+      error:e
+    } = await supabase.rpc(
       'create_project_task_safe',
       {
-        p_project_id:project.id,
+        p_project_id:
+          project.id,
         p_title:title,
-        p_assignee_id:session.user.id
+        p_assignee_id:
+          session.user.id
       }
     )
 
     if(e){
       return alert(
-        'Không tạo được task: '+e.message
+        'Không tạo được task: '+
+        e.message
       )
     }
 
-    const {data,error:readError}=await supabase
+    const {
+      data,
+      error:readError
+    } = await supabase
       .from('tasks')
-      .select('*, profiles!tasks_assignee_id_fkey(full_name,avatar_url,email)')
-      .eq('id',taskId)
+      .select(
+        '*, profiles!tasks_assignee_id_fkey(full_name,avatar_url,email)'
+      )
+      .eq(
+        'id',
+        taskId
+      )
       .single()
 
     if(readError){
@@ -410,31 +791,47 @@ export default function Home(){
       )
     }
 
-    setTasks([
-      data,
-      ...tasks.filter(
-        x=>x.id!==data.id
-      )
-    ])
+    setTasks(
+      [
+        data,
+        ...tasks.filter(
+          x=>x.id!==data.id
+        )
+      ]
+    )
 
     setQuickTitle('')
-    showToast('Đã thêm task')
+
+    showToast(
+      'Đã thêm task'
+    )
   }
 
-  async function updateTask(id, patch){
-    const old=tasks.find(
-      t=>t.id===id
-    )
+  async function updateTask(
+    id,
+    patch
+  ){
+
+    const old=
+      tasks.find(
+        t=>t.id===id
+      )
 
     setTasks(
       tasks.map(
-        t=>t.id===id
-          ? {...t,...patch}
-          : t
+        t=>
+          t.id===id
+            ? {
+                ...t,
+                ...patch
+              }
+            : t
       )
     )
 
-    if(taskDrawer?.id===id){
+    if(
+      taskDrawer?.id===id
+    ){
       setTaskDrawer({
         ...taskDrawer,
         ...patch
@@ -444,57 +841,75 @@ export default function Home(){
     let e=null
 
     if(
-      Object.prototype.hasOwnProperty.call(
-        patch,
-        'assignee_id'
-      )
+      Object.prototype
+        .hasOwnProperty
+        .call(
+          patch,
+          'assignee_id'
+        )
     ){
-      const r=await supabase.rpc(
-        'assign_task_safe',
-        {
-          p_task_id:id,
-          p_assignee_id:
-            patch.assignee_id||null
-        }
-      )
+
+      const r=
+        await supabase.rpc(
+          'assign_task_safe',
+          {
+            p_task_id:id,
+            p_assignee_id:
+              patch.assignee_id||null
+          }
+        )
 
       e=r.error
 
     }else if(
-      Object.prototype.hasOwnProperty.call(
-        patch,
-        'status'
-      )
+      Object.prototype
+        .hasOwnProperty
+        .call(
+          patch,
+          'status'
+        )
     ){
-      const r=await supabase.rpc(
-        'update_task_status_safe',
-        {
-          p_task_id:id,
-          p_status:patch.status
-        }
-      )
+
+      const r=
+        await supabase.rpc(
+          'update_task_status_safe',
+          {
+            p_task_id:id,
+            p_status:
+              patch.status
+          }
+        )
 
       e=r.error
 
     }else{
-      const r=await supabase
-        .from('tasks')
-        .update(patch)
-        .eq('id',id)
+
+      const r=
+        await supabase
+          .from('tasks')
+          .update(patch)
+          .eq(
+            'id',
+            id
+          )
 
       e=r.error
     }
 
     if(e){
+
       setTasks(
         tasks.map(
-          t=>t.id===id
-            ? old
-            : t
+          t=>
+            t.id===id
+              ? old
+              : t
         )
       )
 
-      if(taskDrawer?.id===id){
+      if(
+        taskDrawer?.id===id
+      ){
         setTaskDrawer(old)
       }
 
@@ -502,13 +917,20 @@ export default function Home(){
         'Không lưu được task: '+
         e.message
       )
+
     }else{
-      showToast('Đã lưu')
+
+      showToast(
+        'Đã lưu'
+      )
     }
   }
 
   async function completeByCheckbox(t){
-    if(t.status==='done'){
+
+    if(
+      t.status==='done'
+    ){
       return updateTask(
         t.id,
         {
@@ -519,10 +941,12 @@ export default function Home(){
     }
 
     const requireReview =
-      project?.require_task_review!==false
+      project
+        ?.require_task_review!==false
 
     const next =
-      requireReview &&
+      requireReview
+      &&
       !canReviewTask(
         membership,
         currentProjectMember
@@ -540,13 +964,15 @@ export default function Home(){
             : t.progress,
         completed_at:
           next==='done'
-            ? new Date().toISOString()
+            ? new Date()
+                .toISOString()
             : null
       }
     )
   }
 
   function showToast(msg){
+
     setToast(msg)
 
     setTimeout(
@@ -555,74 +981,168 @@ export default function Home(){
     )
   }
 
-  const filtered=useMemo(
-    ()=>tasks.filter(
-      t=>
-        `${t.code} ${t.title} ${t.profiles?.full_name||''}`
-          .toLowerCase()
-          .includes(
-            search.toLowerCase()
+  const filtered=
+    useMemo(
+      ()=>{
+
+        let rows=[
+          ...tasks
+        ]
+
+        if(
+          taskFilter==='my'
+        ){
+          rows=rows.filter(
+            t=>
+              t.assignee_id===
+              session?.user?.id
           )
-    ),
-    [tasks,search]
-  )
+        }
 
-  const stats=useMemo(
-    ()=>({
-      total:tasks.length,
-      done:
-        tasks.filter(
-          x=>x.status==='done'
-        ).length,
-      review:
-        tasks.filter(
-          x=>x.status==='review'
-        ).length,
-      overdue:
-        tasks.filter(
-          x=>
-            x.due_at &&
-            new Date(x.due_at)<new Date() &&
-            x.status!=='done'
-        ).length
-    }),
-    [tasks]
-  )
+        if(
+          taskFilter==='overdue'
+        ){
+          rows=rows.filter(
+            t=>
+              t.due_at
+              &&
+              new Date(
+                t.due_at
+              )<
+              new Date()
+              &&
+              t.status!=='done'
+          )
+        }
 
-  const progress=stats.total
-    ? Math.round(
-        stats.done/
-        stats.total*
-        100
-      )
-    : 0
+        if(
+          taskFilter==='review'
+        ){
+          rows=rows.filter(
+            t=>
+              t.status==='review'
+          )
+        }
+
+        if(
+          search.trim()
+        ){
+
+          const q=
+            search
+              .toLowerCase()
+
+          rows=rows.filter(
+            t=>
+              `${t.code} ${t.title} ${t.profiles?.full_name||''}`
+                .toLowerCase()
+                .includes(q)
+          )
+        }
+
+        return rows
+
+      },
+      [
+        tasks,
+        search,
+        taskFilter,
+        session?.user?.id
+      ]
+    )
+
+  const stats=
+    useMemo(
+      ()=>({
+        total:tasks.length,
+        done:
+          tasks.filter(
+            x=>
+              x.status==='done'
+          ).length,
+        review:
+          tasks.filter(
+            x=>
+              x.status==='review'
+          ).length,
+        overdue:
+          tasks.filter(
+            x=>
+              x.due_at
+              &&
+              new Date(
+                x.due_at
+              )<
+              new Date()
+              &&
+              x.status!=='done'
+          ).length
+      }),
+      [
+        tasks
+      ]
+    )
+
+  const progress=
+    stats.total
+      ? Math.round(
+          stats.done/
+          stats.total*
+          100
+        )
+      : 0
 
   async function exportExcel(){
-    const rows=filtered.map(t=>({
-      Project:project?.name,
-      'Task code':t.code,
-      'Task name':t.title,
-      Assignee:t.profiles?.full_name||'',
-      Status:LABEL[t.status]||t.status,
-      Progress:t.progress,
-      Priority:PRIORITY[t.priority]||t.priority,
-      Deadline:t.due_at||'',
-      Completed:t.completed_at||'',
-      Description:t.description||'',
-      Delivery:t.delivery_url||''
-    }))
+
+    const rows=
+      filtered.map(
+        t=>({
+          Project:
+            project?.name,
+          'Task code':
+            t.code,
+          'Task name':
+            t.title,
+          Assignee:
+            t.profiles
+              ?.full_name||'',
+          Status:
+            LABEL[
+              t.status
+            ]||t.status,
+          Progress:
+            t.progress,
+          Priority:
+            PRIORITY[
+              t.priority
+            ]||t.priority,
+          Deadline:
+            t.due_at||'',
+          Completed:
+            t.completed_at||'',
+          Description:
+            t.description||'',
+          Delivery:
+            t.delivery_url||''
+        })
+      )
 
     const ws=
-      XLSX.utils.json_to_sheet(rows)
+      XLSX.utils
+        .json_to_sheet(
+          rows
+        )
 
     const wb=
-      XLSX.utils.book_new()
+      XLSX.utils
+        .book_new()
 
-    XLSX.utils.book_append_sheet(
-      wb,
-      ws,
-      'Tasks'
-    )
+    XLSX.utils
+      .book_append_sheet(
+        wb,
+        ws,
+        'Tasks'
+      )
 
     XLSX.writeFile(
       wb,
@@ -654,11 +1174,15 @@ export default function Home(){
     />
   }
 
+  const canCreateAnyProject =
+    membership.status==='active'
+
   return <div className="appShell">
 
     <aside className="sidebar">
 
       <div className="brand">
+
         <div className="brandMark">
           F
         </div>
@@ -672,6 +1196,7 @@ export default function Home(){
             Project Workspace
           </small>
         </div>
+
       </div>
 
       <nav>
@@ -682,7 +1207,9 @@ export default function Home(){
               ? 'active'
               : ''
           }
-          onClick={()=>setView('home')}
+          onClick={()=>
+            setView('home')
+          }
         >
           ⌂ <span>Home</span>
         </button>
@@ -693,14 +1220,17 @@ export default function Home(){
               ? 'active'
               : ''
           }
-          onClick={()=>setView('mytasks')}
+          onClick={()=>
+            setView('mytasks')
+          }
         >
           ✓ <span>My Tasks</span>
         </button>
 
         <button
           className={
-            view==='projects' ||
+            view==='projects'
+            ||
             view==='project'
               ? 'active'
               : ''
@@ -719,19 +1249,25 @@ export default function Home(){
               ? 'active'
               : ''
           }
-          onClick={()=>setView('teams')}
+          onClick={()=>
+            setView('teams')
+          }
         >
           ♟ <span>Teams</span>
         </button>
 
-        {canManageWorkspace(membership) &&
+        {canManageWorkspace(
+          membership
+        ) &&
           <button
             className={
               view==='members'
                 ? 'active'
                 : ''
             }
-            onClick={()=>setView('members')}
+            onClick={()=>
+              setView('members')
+            }
           >
             ♙ <span>Members</span>
           </button>
@@ -743,7 +1279,9 @@ export default function Home(){
               ? 'active'
               : ''
           }
-          onClick={()=>setView('reports')}
+          onClick={()=>
+            setView('reports')
+          }
         >
           ▥ <span>Reports</span>
         </button>
@@ -758,17 +1296,20 @@ export default function Home(){
 
         {projects
           .slice(0,7)
-          .map(p=>
-            <button
-              key={p.id}
-              onClick={()=>openProject(p)}
-            >
-              <i/>
+          .map(
+            p=>
+              <button
+                key={p.id}
+                onClick={()=>
+                  openProject(p)
+                }
+              >
+                <i/>
 
-              <span>
-                {p.name}
-              </span>
-            </button>
+                <span>
+                  {p.name}
+                </span>
+              </button>
           )
         }
 
@@ -782,16 +1323,21 @@ export default function Home(){
 
           <b>
             {
-              profile?.full_name ||
-              profile?.email
+              profile
+                ?.full_name
+              ||
+              profile
+                ?.email
             }
           </b>
 
           <small>
             {
-              membership.role==='manager'
+              membership
+                .role==='manager'
                 ? 'Trưởng phòng'
-                : membership.role==='team_lead'
+                : membership
+                    .role==='team_lead'
                   ? 'Team Lead'
                   : 'Member/CTV'
             }
@@ -799,7 +1345,9 @@ export default function Home(){
 
         </div>
 
-        <button onClick={logout}>
+        <button
+          onClick={logout}
+        >
           ↪
         </button>
 
@@ -814,7 +1362,11 @@ export default function Home(){
         <div>
 
           <b>
-            {workspace?.name||'FPTU Work'}
+            {
+              workspace?.name
+              ||
+              'FPTU Work'
+            }
           </b>
 
           <span className="crumb">
@@ -842,14 +1394,19 @@ export default function Home(){
             🔔
 
             {
-              notifications.filter(
-                n=>!n.is_read
-              ).length>0 &&
+              notifications
+                .filter(
+                  n=>!n.is_read
+                )
+                .length>0
+              &&
               <em>
                 {
-                  notifications.filter(
-                    n=>!n.is_read
-                  ).length
+                  notifications
+                    .filter(
+                      n=>!n.is_read
+                    )
+                    .length
                 }
               </em>
             }
@@ -869,7 +1426,7 @@ export default function Home(){
             setProjectCreateOpen(true)
           }
           canCreate={
-            canCreateProject(membership)
+            canCreateAnyProject
           }
         />
       }
@@ -886,6 +1443,8 @@ export default function Home(){
           tasks={filtered}
           search={search}
           setSearch={setSearch}
+          taskFilter={taskFilter}
+          setTaskFilter={setTaskFilter}
           quickTitle={quickTitle}
           setQuickTitle={setQuickTitle}
           quickCreateTask={quickCreateTask}
@@ -899,6 +1458,9 @@ export default function Home(){
           membership={membership}
           currentProjectMember={
             currentProjectMember
+          }
+          currentUserIsProjectLead={
+            currentUserIsProjectLead
           }
           onProjectMembersChanged={()=>
             openProject(project)
@@ -925,7 +1487,9 @@ export default function Home(){
           teams={teams}
           projects={projects}
           canCreate={
-            canManageWorkspace(membership)
+            canManageWorkspace(
+              membership
+            )
           }
           onCreate={()=>
             setTeamCreateOpen(true)
@@ -934,7 +1498,9 @@ export default function Home(){
       }
 
       {view==='members' &&
-        canManageWorkspace(membership) &&
+        canManageWorkspace(
+          membership
+        ) &&
         <Members
           members={members}
           teams={teams}
@@ -958,7 +1524,9 @@ export default function Home(){
       <TaskDrawer
         task={taskDrawer}
         project={project}
-        projectMembers={projectMembers}
+        projectMembers={
+          projectMembers
+        }
         membership={membership}
         currentProjectMember={
           currentProjectMember
@@ -979,7 +1547,9 @@ export default function Home(){
           setMemberDrawer(null)
         }
         onSaved={()=>
-          bootstrap(session.user)
+          bootstrap(
+            session.user
+          )
         }
       />
     }
@@ -1004,7 +1574,9 @@ export default function Home(){
           setInviteOpen(false)
         }
         onCreated={()=>
-          showToast('Đã tạo link mời')
+          showToast(
+            'Đã tạo link mời'
+          )
         }
       />
     }
@@ -1017,7 +1589,9 @@ export default function Home(){
           setNotificationOpen(false)
         }
         onChanged={()=>
-          bootstrap(session.user)
+          bootstrap(
+            session.user
+          )
         }
       />
     }
@@ -1042,10 +1616,20 @@ export default function Home(){
 }
 function Login({onLogin}){
   return <div className="loginPage">
+
     <div className="loginCard">
-      <div className="loginLogo">F</div>
-      <h1>FPTU Work</h1>
-      <p>Project Management Workspace</p>
+
+      <div className="loginLogo">
+        F
+      </div>
+
+      <h1>
+        FPTU Work
+      </h1>
+
+      <p>
+        Project Management Workspace
+      </p>
 
       <button
         className="googleBtn"
@@ -1059,14 +1643,24 @@ function Login({onLogin}){
         Bất kỳ tài khoản Google nào cũng có thể đăng nhập.
         Quyền truy cập được kiểm soát bằng workspace/project membership.
       </small>
+
     </div>
+
   </div>
 }
 
-function NoMembership({profile,onLogout}){
+function NoMembership({
+  profile,
+  onLogout
+}){
   return <div className="loginPage">
+
     <div className="loginCard">
-      <Avatar p={profile} big/>
+
+      <Avatar
+        p={profile}
+        big
+      />
 
       <h2>
         {profile?.full_name}
@@ -1083,21 +1677,39 @@ function NoMembership({profile,onLogout}){
       >
         Đăng xuất
       </button>
+
     </div>
+
   </div>
 }
 
-function Avatar({p,big}){
+function Avatar({
+  p,
+  big
+}){
   return p?.avatar_url
     ? <img
-        className={big?'avatar big':'avatar'}
+        className={
+          big
+            ? 'avatar big'
+            : 'avatar'
+        }
         src={p.avatar_url}
         alt=""
       />
     : <div
-        className={big?'avatar fallback big':'avatar fallback'}
+        className={
+          big
+            ? 'avatar fallback big'
+            : 'avatar fallback'
+        }
       >
-        {initials(p?.full_name||p?.email)}
+        {
+          initials(
+            p?.full_name||
+            p?.email
+          )
+        }
       </div>
 }
 
@@ -1110,11 +1722,17 @@ function Projects({
   return <section className="page">
 
     <div className="pageHead">
+
       <div>
-        <h1>Projects</h1>
+
+        <h1>
+          Projects
+        </h1>
+
         <p>
           Quản lý toàn bộ chiến dịch và không gian phối hợp công việc.
         </p>
+
       </div>
 
       {canCreate &&
@@ -1125,46 +1743,82 @@ function Projects({
           ＋ New Project
         </button>
       }
+
     </div>
 
     <div className="projectGrid">
 
-      {projects.map(p=>
-        <article
-          className="projectCard"
-          key={p.id}
-          onClick={()=>onOpen(p)}
-        >
-          <div className="projectIcon">
-            {(p.code||'P').slice(0,2)}
-          </div>
+      {projects.map(
+        p=>
+          <article
+            className="projectCard"
+            key={p.id}
+            onClick={()=>
+              onOpen(p)
+            }
+          >
 
-          <div className="projectMeta">
-            <span className={'pill '+p.status}>
-              {LABEL[p.status]||p.status}
-            </span>
+            <div className="projectIcon">
+              {
+                (p.code||'P')
+                  .slice(0,2)
+              }
+            </div>
 
-            <span>
-              {p.teams?.name||''}
-            </span>
-          </div>
+            <div className="projectMeta">
 
-          <h3>{p.name}</h3>
+              <span
+                className={
+                  'pill '+p.status
+                }
+              >
+                {
+                  LABEL[p.status]
+                  ||
+                  p.status
+                }
+              </span>
 
-          <p>
-            {p.description||'Chưa có mô tả. Click vào Project để bổ sung.'}
-          </p>
+              <span>
+                {p.teams?.name||''}
+              </span>
 
-          <div className="projectFoot">
-            <span>
-              Lead: {p.profiles?.full_name||'—'}
-            </span>
+            </div>
 
-            <span>
-              {fmtDate(p.due_at)}
-            </span>
-          </div>
-        </article>
+            <h3>
+              {p.name}
+            </h3>
+
+            <p>
+              {
+                p.description
+                ||
+                'Chưa có mô tả. Click vào Project để bổ sung.'
+              }
+            </p>
+
+            <div className="projectFoot">
+
+              <span>
+                Lead: {
+                  p.profiles
+                    ?.full_name
+                  ||
+                  '—'
+                }
+              </span>
+
+              <span>
+                {
+                  fmtDate(
+                    p.due_at
+                  )
+                }
+              </span>
+
+            </div>
+
+          </article>
       )}
 
       {!projects.length &&
@@ -1172,6 +1826,7 @@ function Projects({
           Chưa có Project nào.
         </div>
       }
+
     </div>
 
   </section>
@@ -1187,6 +1842,8 @@ function ProjectPage({
   tasks,
   search,
   setSearch,
+  taskFilter,
+  setTaskFilter,
   quickTitle,
   setQuickTitle,
   quickCreateTask,
@@ -1199,37 +1856,65 @@ function ProjectPage({
   exportExcel,
   membership,
   currentProjectMember,
+  currentUserIsProjectLead,
   onProjectMembersChanged
 }){
 
-  const [projectMemberOpen,setProjectMemberOpen]=useState(false)
+  const [
+    projectMemberOpen,
+    setProjectMemberOpen
+  ] = useState(false)
 
   const canManageProjectMembers =
-    membership?.role==='manager' ||
-    project?.lead_id===membership?.user_id ||
-    !!currentProjectMember?.can_manage_project_members
+    membership?.role==='manager'
+    ||
+    currentUserIsProjectLead
+    ||
+    !!currentProjectMember
+      ?.can_manage_project_members
+
+  const canSeeAllTaskFilter =
+    membership?.role==='manager'
+    ||
+    membership?.role==='team_lead'
+    ||
+    currentUserIsProjectLead
 
   async function saveDescription(){
+
     const v=prompt(
       'Mô tả Project',
       project.description||''
     )
 
-    if(v===null) return
+    if(v===null){
+      return
+    }
 
-    const {error}=await supabase
+    const {
+      error
+    } = await supabase
       .from('projects')
       .update({
         description:v
       })
-      .eq('id',project.id)
+      .eq(
+        'id',
+        project.id
+      )
 
-    if(!error){
-      setProject({
-        ...project,
-        description:v
-      })
+    if(error){
+      alert(
+        'Không lưu được mô tả Project: '+
+        error.message
+      )
+      return
     }
+
+    setProject({
+      ...project,
+      description:v
+    })
   }
 
   return <section className="page projectPage">
@@ -1237,7 +1922,10 @@ function ProjectPage({
     <div className="projectHeader">
 
       <div className="projectIcon large">
-        {(project.code||'P').slice(0,2)}
+        {
+          (project.code||'P')
+            .slice(0,2)
+        }
       </div>
 
       <div className="grow">
@@ -1257,15 +1945,24 @@ function ProjectPage({
           onClick={saveDescription}
         >
           {
-            project.description ||
+            project.description
+            ||
             '+ Thêm mô tả Project'
           }
         </div>
 
       </div>
 
-      <span className={'pill '+project.status}>
-        {LABEL[project.status]||project.status}
+      <span
+        className={
+          'pill '+project.status
+        }
+      >
+        {
+          LABEL[project.status]
+          ||
+          project.status
+        }
       </span>
 
     </div>
@@ -1279,14 +1976,26 @@ function ProjectPage({
         'files',
         'activity',
         'report'
-      ].map(x=>
-        <button
-          className={tab===x?'active':''}
-          onClick={()=>setTab(x)}
-          key={x}
-        >
-          {x[0].toUpperCase()+x.slice(1)}
-        </button>
+      ].map(
+        x=>
+          <button
+            className={
+              tab===x
+                ? 'active'
+                : ''
+            }
+            onClick={()=>
+              setTab(x)
+            }
+            key={x}
+          >
+            {
+              x[0]
+                .toUpperCase()
+              +
+              x.slice(1)
+            }
+          </button>
       )}
 
     </div>
@@ -1328,28 +2037,45 @@ function ProjectPage({
 
             <Info
               label="Team"
-              value={project.teams?.name||'—'}
+              value={
+                project.teams?.name
+                ||
+                '—'
+              }
             />
 
             <Info
               label="Bắt đầu"
-              value={fmtDate(project.start_at)}
+              value={
+                fmtDate(
+                  project.start_at
+                )
+              }
             />
 
             <Info
               label="Deadline"
-              value={fmtDate(project.due_at)}
+              value={
+                fmtDate(
+                  project.due_at
+                )
+              }
             />
 
             <Info
               label="Visibility"
-              value={project.visibility||'team'}
+              value={
+                project.visibility
+                ||
+                'team'
+              }
             />
 
             <Info
               label="Require review"
               value={
-                project.require_task_review===false
+                project
+                  .require_task_review===false
                   ? 'Off'
                   : 'On'
               }
@@ -1368,6 +2094,7 @@ function ProjectPage({
                 marginBottom:12
               }}
             >
+
               <h3 style={{margin:0}}>
                 Members
               </h3>
@@ -1375,33 +2102,46 @@ function ProjectPage({
               {canManageProjectMembers &&
                 <button
                   className="primary"
-                  onClick={()=>setProjectMemberOpen(true)}
+                  onClick={()=>
+                    setProjectMemberOpen(
+                      true
+                    )
+                  }
                 >
                   ＋ Add member
                 </button>
               }
+
             </div>
 
-            {members.map(m=>
-              <div
-                className="memberLine"
-                key={m.user_id}
-              >
+            {members.map(
+              m=>
+                <div
+                  className="memberLine"
+                  key={m.user_id}
+                >
 
-                <Avatar p={m.profiles}/>
+                  <Avatar
+                    p={m.profiles}
+                  />
 
-                <span>
-                  {
-                    m.profiles?.full_name ||
-                    m.profiles?.email
-                  }
-                </span>
+                  <span>
+                    {
+                      m.profiles
+                        ?.full_name
+                      ||
+                      m.profiles
+                        ?.email
+                    }
+                  </span>
 
-                <small>
-                  {m.role_in_project}
-                </small>
+                  <small>
+                    {
+                      m.role_in_project
+                    }
+                  </small>
 
-              </div>
+                </div>
             )}
 
             {!members.length &&
@@ -1413,11 +2153,22 @@ function ProjectPage({
             {projectMemberOpen &&
               <ProjectMemberDrawer
                 project={project}
-                projectMembers={members}
-                workspaceMembers={workspaceMembers||[]}
-                onClose={()=>setProjectMemberOpen(false)}
+                projectMembers={
+                  members
+                }
+                workspaceMembers={
+                  workspaceMembers||[]
+                }
+                onClose={()=>
+                  setProjectMemberOpen(
+                    false
+                  )
+                }
                 onSaved={async()=>{
-                  setProjectMemberOpen(false)
+                  setProjectMemberOpen(
+                    false
+                  )
+
                   await onProjectMembersChanged?.()
                 }}
               />
@@ -1434,12 +2185,25 @@ function ProjectPage({
         tasks={tasks}
         search={search}
         setSearch={setSearch}
+        taskFilter={taskFilter}
+        setTaskFilter={
+          setTaskFilter
+        }
+        canSeeAllTaskFilter={
+          canSeeAllTaskFilter
+        }
         quickTitle={quickTitle}
-        setQuickTitle={setQuickTitle}
-        quickCreateTask={quickCreateTask}
+        setQuickTitle={
+          setQuickTitle
+        }
+        quickCreateTask={
+          quickCreateTask
+        }
         canTask={canTask}
         openTask={openTask}
-        completeByCheckbox={completeByCheckbox}
+        completeByCheckbox={
+          completeByCheckbox
+        }
         updateTask={updateTask}
         members={members}
       />
@@ -1454,9 +2218,7 @@ function ProjectPage({
     }
 
     {tab==='files' &&
-      <ProjectFiles
-        project={project}
-      />
+      <ProjectFiles/>
     }
 
     {tab==='activity' &&
@@ -1489,17 +2251,45 @@ function ProjectPage({
   </section>
 }
 
-function Stat({label,value,danger}){
-  return <div className={'stat '+(danger?'danger':'')}>
-    <span>{label}</span>
-    <b>{value}</b>
+function Stat({
+  label,
+  value,
+  danger
+}){
+  return <div
+    className={
+      'stat '+
+      (
+        danger
+          ? 'danger'
+          : ''
+      )
+    }
+  >
+    <span>
+      {label}
+    </span>
+
+    <b>
+      {value}
+    </b>
   </div>
 }
 
-function Info({label,value}){
+function Info({
+  label,
+  value
+}){
   return <div className="infoRow">
-    <span>{label}</span>
-    <b>{value}</b>
+
+    <span>
+      {label}
+    </span>
+
+    <b>
+      {value}
+    </b>
+
   </div>
 }
 
@@ -1507,6 +2297,9 @@ function TaskList({
   tasks,
   search,
   setSearch,
+  taskFilter,
+  setTaskFilter,
+  canSeeAllTaskFilter,
   quickTitle,
   setQuickTitle,
   quickCreateTask,
@@ -1523,13 +2316,75 @@ function TaskList({
       <input
         placeholder="Search task..."
         value={search}
-        onChange={e=>setSearch(e.target.value)}
+        onChange={e=>
+          setSearch(
+            e.target.value
+          )
+        }
       />
 
       <div className="chips">
-        <button>My tasks</button>
-        <button>Overdue</button>
-        <button>Review</button>
+
+        <button
+          className={
+            taskFilter==='my'
+              ? 'active'
+              : ''
+          }
+          onClick={()=>
+            setTaskFilter('my')
+          }
+        >
+          My Tasks
+        </button>
+
+        <button
+          className={
+            taskFilter==='overdue'
+              ? 'active'
+              : ''
+          }
+          onClick={()=>
+            setTaskFilter(
+              'overdue'
+            )
+          }
+        >
+          Overdue
+        </button>
+
+        <button
+          className={
+            taskFilter==='review'
+              ? 'active'
+              : ''
+          }
+          onClick={()=>
+            setTaskFilter(
+              'review'
+            )
+          }
+        >
+          Review
+        </button>
+
+        {canSeeAllTaskFilter &&
+          <button
+            className={
+              taskFilter==='all'
+                ? 'active'
+                : ''
+            }
+            onClick={()=>
+              setTaskFilter(
+                'all'
+              )
+            }
+          >
+            All
+          </button>
+        }
+
       </div>
 
     </div>
@@ -1543,138 +2398,198 @@ function TaskList({
       <span>Status</span>
     </div>
 
-    {tasks.map(t=>
-      <div
-        className="taskRow"
-        key={t.id}
-      >
+    {tasks.map(
+      t=>
+        <div
+          className="taskRow"
+          key={t.id}
+        >
 
-        <button
-          className={
-            'check '+(
+          <button
+            className={
+              'check '+
+              (
+                t.status==='done'
+                  ? 'done'
+                  : ''
+              )
+            }
+            onClick={()=>
+              completeByCheckbox(
+                t
+              )
+            }
+          >
+            {
               t.status==='done'
-                ? 'done'
+                ? '✓'
                 : ''
-            )
-          }
-          onClick={()=>completeByCheckbox(t)}
-        >
-          {t.status==='done'?'✓':''}
-        </button>
+            }
+          </button>
 
-        <button
-          className="taskTitle"
-          onClick={()=>openTask(t)}
-        >
-          <b>{t.title}</b>
-          <small>{t.code}</small>
-        </button>
+          <button
+            className="taskTitle"
+            onClick={()=>
+              openTask(t)
+            }
+          >
 
-        <select
-          value={t.assignee_id||''}
-          onChange={e=>
-            updateTask(
-              t.id,
-              {
-                assignee_id:e.target.value||null
-              }
-            )
-          }
-        >
-          <option value="">
-            —
-          </option>
+            <b>
+              {t.title}
+            </b>
 
-          {members.map(m=>
-            <option
-              key={m.user_id}
-              value={m.user_id}
-            >
-              {
-                m.profiles?.full_name ||
-                m.profiles?.email
-              }
+            <small>
+              {t.code}
+            </small>
+
+          </button>
+
+          <select
+            value={
+              t.assignee_id||''
+            }
+            onChange={e=>
+              updateTask(
+                t.id,
+                {
+                  assignee_id:
+                    e.target.value
+                    ||
+                    null
+                }
+              )
+            }
+          >
+
+            <option value="">
+              —
             </option>
-          )}
-        </select>
 
-        <input
-          type="date"
-          value={
-            t.due_at
-              ? t.due_at.slice(0,10)
-              : ''
-          }
-          onChange={e=>
-            updateTask(
-              t.id,
-              {
-                due_at:e.target.value
-                  ? new Date(
-                      e.target.value+'T17:00:00'
-                    ).toISOString()
-                  : null
-              }
-            )
-          }
-        />
+            {members.map(
+              m=>
+                <option
+                  key={m.user_id}
+                  value={m.user_id}
+                >
+                  {
+                    m.profiles
+                      ?.full_name
+                    ||
+                    m.profiles
+                      ?.email
+                  }
+                </option>
+            )}
 
-        <select
-          value={t.priority}
-          onChange={e=>
-            updateTask(
-              t.id,
-              {
-                priority:e.target.value
-              }
-            )
-          }
-        >
-          {Object.keys(PRIORITY).map(x=>
-            <option
-              key={x}
-              value={x}
-            >
-              {PRIORITY[x]}
-            </option>
-          )}
-        </select>
+          </select>
 
-        <select
-          value={t.status}
-          onChange={e=>
-            updateTask(
-              t.id,
-              {
-                status:e.target.value
-              }
-            )
-          }
-        >
-          {STATUS.map(x=>
-            <option
-              key={x}
-              value={x}
-            >
-              {LABEL[x]}
-            </option>
-          )}
-        </select>
+          <input
+            type="date"
+            value={
+              t.due_at
+                ? t.due_at.slice(
+                    0,
+                    10
+                  )
+                : ''
+            }
+            onChange={e=>
+              updateTask(
+                t.id,
+                {
+                  due_at:
+                    e.target.value
+                      ? new Date(
+                          e.target.value+
+                          'T17:00:00'
+                        ).toISOString()
+                      : null
+                }
+              )
+            }
+          />
 
-      </div>
+          <select
+            value={t.priority}
+            onChange={e=>
+              updateTask(
+                t.id,
+                {
+                  priority:
+                    e.target.value
+                }
+              )
+            }
+          >
+
+            {Object.keys(
+              PRIORITY
+            ).map(
+              x=>
+                <option
+                  key={x}
+                  value={x}
+                >
+                  {
+                    PRIORITY[x]
+                  }
+                </option>
+            )}
+
+          </select>
+
+          <select
+            value={t.status}
+            onChange={e=>
+              updateTask(
+                t.id,
+                {
+                  status:
+                    e.target.value
+                }
+              )
+            }
+          >
+
+            {STATUS.map(
+              x=>
+                <option
+                  key={x}
+                  value={x}
+                >
+                  {LABEL[x]}
+                </option>
+            )}
+
+          </select>
+
+        </div>
     )}
+
+    {!tasks.length &&
+      <div className="empty">
+        Không có task phù hợp với bộ lọc hiện tại.
+      </div>
+    }
 
     {canTask &&
       <div className="quickAdd">
 
-        <span>＋</span>
+        <span>
+          ＋
+        </span>
 
         <input
           placeholder="Thêm task và nhấn Enter..."
           value={quickTitle}
-          onChange={e=>setQuickTitle(e.target.value)}
+          onChange={e=>
+            setQuickTitle(
+              e.target.value
+            )
+          }
           onKeyDown={e=>
-            e.key==='Enter' &&
+            e.key==='Enter'
+            &&
             quickCreateTask()
           }
         />
@@ -1692,76 +2607,109 @@ function Kanban({
 }){
   return <div className="kanban">
 
-    {STATUS.map(s=>
-      <div
-        className="kanbanCol"
-        key={s}
-        onDragOver={e=>e.preventDefault()}
-        onDrop={e=>{
-          const id=e.dataTransfer.getData('task')
+    {STATUS.map(
+      s=>
+        <div
+          className="kanbanCol"
+          key={s}
+          onDragOver={e=>
+            e.preventDefault()
+          }
+          onDrop={e=>{
 
-          if(id){
-            updateTask(
-              id,
+            const id=
+              e.dataTransfer
+                .getData('task')
+
+            if(id){
+              updateTask(
+                id,
+                {
+                  status:s
+                }
+              )
+            }
+          }}
+        >
+
+          <div className="kanbanHead">
+
+            <b>
+              {LABEL[s]}
+            </b>
+
+            <span>
               {
-                status:s
+                tasks.filter(
+                  t=>
+                    t.status===s
+                ).length
               }
+            </span>
+
+          </div>
+
+          {tasks
+            .filter(
+              t=>
+                t.status===s
+            )
+            .map(
+              t=>
+                <div
+                  draggable
+                  onDragStart={e=>
+                    e.dataTransfer
+                      .setData(
+                        'task',
+                        t.id
+                      )
+                  }
+                  className="kanbanCard"
+                  key={t.id}
+                  onDoubleClick={()=>
+                    openTask(t)
+                  }
+                >
+
+                  <small>
+                    {t.code}
+                  </small>
+
+                  <b>
+                    {t.title}
+                  </b>
+
+                  <div>
+
+                    <span
+                      className={
+                        'priority '+
+                        t.priority
+                      }
+                    >
+                      {
+                        PRIORITY[
+                          t.priority
+                        ]
+                      }
+                    </span>
+
+                    <span>
+                      {
+                        fmtDate(
+                          t.due_at
+                        )
+                      }
+                    </span>
+
+                  </div>
+
+                </div>
             )
           }
-        }}
-      >
 
-        <div className="kanbanHead">
-          <b>{LABEL[s]}</b>
-          <span>
-            {
-              tasks.filter(
-                t=>t.status===s
-              ).length
-            }
-          </span>
         </div>
-
-        {tasks
-          .filter(t=>t.status===s)
-          .map(t=>
-            <div
-              draggable
-              onDragStart={e=>
-                e.dataTransfer.setData(
-                  'task',
-                  t.id
-                )
-              }
-              className="kanbanCard"
-              key={t.id}
-              onDoubleClick={()=>openTask(t)}
-            >
-
-              <small>
-                {t.code}
-              </small>
-
-              <b>
-                {t.title}
-              </b>
-
-              <div>
-
-                <span className={'priority '+t.priority}>
-                  {PRIORITY[t.priority]}
-                </span>
-
-                <span>
-                  {fmtDate(t.due_at)}
-                </span>
-
-              </div>
-
-            </div>
-          )}
-
-      </div>
     )}
 
   </div>
@@ -1776,28 +2724,47 @@ function TaskDrawer({
   onClose,
   onUpdate
 }){
-  const [comments,setComments]=useState([])
-  const [activity,setActivity]=useState([])
-  const [comment,setComment]=useState('')
+
+  const [
+    comments,
+    setComments
+  ] = useState([])
+
+  const [
+    activity,
+    setActivity
+  ] = useState([])
+
+  const [
+    comment,
+    setComment
+  ] = useState('')
 
   useEffect(()=>{
+
     load()
 
     const ch=supabase
-      .channel('task-'+task.id)
+      .channel(
+        'task-'+task.id
+      )
       .on(
         'postgres_changes',
         {
           event:'*',
           schema:'public',
           table:'task_comments',
-          filter:`task_id=eq.${task.id}`
+          filter:
+            `task_id=eq.${task.id}`
         },
         load
       )
       .subscribe()
 
-    return()=>supabase.removeChannel(ch)
+    return ()=>
+      supabase.removeChannel(
+        ch
+      )
 
   },[task.id])
 
@@ -1810,16 +2777,38 @@ function TaskDrawer({
 
       supabase
         .from('task_comments')
-        .select('*, profiles(*)')
-        .eq('task_id',task.id)
-        .is('deleted_at',null)
-        .order('created_at'),
+        .select(
+          '*, profiles(*)'
+        )
+        .eq(
+          'task_id',
+          task.id
+        )
+        .is(
+          'deleted_at',
+          null
+        )
+        .order(
+          'created_at'
+        ),
 
       supabase
-        .from('task_activity_logs')
-        .select('*, profiles(*)')
-        .eq('task_id',task.id)
-        .order('created_at',{ascending:false})
+        .from(
+          'task_activity_logs'
+        )
+        .select(
+          '*, profiles(*)'
+        )
+        .eq(
+          'task_id',
+          task.id
+        )
+        .order(
+          'created_at',
+          {
+            ascending:false
+          }
+        )
         .limit(50)
 
     ])
@@ -1830,23 +2819,41 @@ function TaskDrawer({
 
   async function addComment(){
 
-    if(!comment.trim()) return
+    if(
+      !comment.trim()
+    ){
+      return
+    }
 
-    const {data:{user}}=await supabase.auth.getUser()
+    const {
+      data:{user}
+    } = await supabase
+      .auth
+      .getUser()
 
-    if(!user) return
+    if(!user){
+      return
+    }
 
-    const {error}=await supabase
-      .from('task_comments')
+    const {
+      error
+    } = await supabase
+      .from(
+        'task_comments'
+      )
       .insert({
-        task_id:task.id,
-        user_id:user.id,
-        content:comment.trim()
+        task_id:
+          task.id,
+        user_id:
+          user.id,
+        content:
+          comment.trim()
       })
 
     if(error){
       alert(
-        'Không gửi được bình luận: '+error.message
+        'Không gửi được bình luận: '+
+        error.message
       )
       return
     }
@@ -1858,7 +2865,9 @@ function TaskDrawer({
   return <div
     className="drawerWrap"
     onMouseDown={e=>
-      e.target===e.currentTarget &&
+      e.target===
+      e.currentTarget
+      &&
       onClose()
     }
   >
@@ -1880,7 +2889,8 @@ function TaskDrawer({
               onUpdate(
                 task.id,
                 {
-                  title:e.target.value
+                  title:
+                    e.target.value
                 }
               )
             }
@@ -1888,7 +2898,9 @@ function TaskDrawer({
 
         </div>
 
-        <button onClick={onClose}>
+        <button
+          onClick={onClose}
+        >
           ×
         </button>
 
@@ -1906,19 +2918,21 @@ function TaskDrawer({
                 onUpdate(
                   task.id,
                   {
-                    status:e.target.value
+                    status:
+                      e.target.value
                   }
                 )
               }
             >
 
-              {STATUS.map(x=>
-                <option
-                  key={x}
-                  value={x}
-                >
-                  {LABEL[x]}
-                </option>
+              {STATUS.map(
+                x=>
+                  <option
+                    key={x}
+                    value={x}
+                  >
+                    {LABEL[x]}
+                  </option>
               )}
 
             </select>
@@ -1928,12 +2942,19 @@ function TaskDrawer({
           <Field label="Assignee">
 
             <select
-              value={task.assignee_id||''}
+              value={
+                task.assignee_id
+                ||
+                ''
+              }
               onChange={e=>
                 onUpdate(
                   task.id,
                   {
-                    assignee_id:e.target.value||null
+                    assignee_id:
+                      e.target.value
+                      ||
+                      null
                   }
                 )
               }
@@ -1943,16 +2964,20 @@ function TaskDrawer({
                 —
               </option>
 
-              {projectMembers.map(m=>
-                <option
-                  key={m.user_id}
-                  value={m.user_id}
-                >
-                  {
-                    m.profiles?.full_name ||
-                    m.profiles?.email
-                  }
-                </option>
+              {projectMembers.map(
+                m=>
+                  <option
+                    key={m.user_id}
+                    value={m.user_id}
+                  >
+                    {
+                      m.profiles
+                        ?.full_name
+                      ||
+                      m.profiles
+                        ?.email
+                    }
+                  </option>
               )}
 
             </select>
@@ -1965,18 +2990,23 @@ function TaskDrawer({
               type="date"
               value={
                 task.due_at
-                  ? task.due_at.slice(0,10)
+                  ? task.due_at.slice(
+                      0,
+                      10
+                    )
                   : ''
               }
               onChange={e=>
                 onUpdate(
                   task.id,
                   {
-                    due_at:e.target.value
-                      ? new Date(
-                          e.target.value+'T17:00:00'
-                        ).toISOString()
-                      : null
+                    due_at:
+                      e.target.value
+                        ? new Date(
+                            e.target.value+
+                            'T17:00:00'
+                          ).toISOString()
+                        : null
                   }
                 )
               }
@@ -1990,12 +3020,15 @@ function TaskDrawer({
               type="number"
               min="0"
               max="100"
-              value={task.progress||0}
+              value={
+                task.progress||0
+              }
               onChange={e=>
                 onUpdate(
                   task.id,
                   {
-                    progress:+e.target.value
+                    progress:
+                      +e.target.value
                   }
                 )
               }
@@ -2014,12 +3047,15 @@ function TaskDrawer({
           <textarea
             rows="7"
             placeholder="+ Thêm mô tả task..."
-            value={task.description||''}
+            value={
+              task.description||''
+            }
             onChange={e=>
               onUpdate(
                 task.id,
                 {
-                  description:e.target.value
+                  description:
+                    e.target.value
                 }
               )
             }
@@ -2036,12 +3072,15 @@ function TaskDrawer({
           <input
             className="fullInput"
             placeholder="https://..."
-            value={task.delivery_url||''}
+            value={
+              task.delivery_url||''
+            }
             onChange={e=>
               onUpdate(
                 task.id,
                 {
-                  delivery_url:e.target.value
+                  delivery_url:
+                    e.target.value
                 }
               )
             }
@@ -2057,44 +3096,54 @@ function TaskDrawer({
 
           <div className="comments">
 
-            {comments.map(c=>
-              <div
-                className="comment"
-                key={c.id}
-              >
+            {comments.map(
+              c=>
+                <div
+                  className="comment"
+                  key={c.id}
+                >
 
-                <Avatar p={c.profiles}/>
+                  <Avatar
+                    p={c.profiles}
+                  />
 
-                <div>
+                  <div>
 
-                  <div className="commentMeta">
+                    <div className="commentMeta">
 
-                    <b>
-                      {
-                        c.profiles?.full_name ||
-                        c.profiles?.email
+                      <b>
+                        {
+                          c.profiles
+                            ?.full_name
+                          ||
+                          c.profiles
+                            ?.email
+                        }
+                      </b>
+
+                      <span>
+                        {
+                          fmtDateTime(
+                            c.created_at
+                          )
+                        }
+                      </span>
+
+                      {c.updated_at &&
+                        <em>
+                          Edited
+                        </em>
                       }
-                    </b>
 
-                    <span>
-                      {fmtDateTime(c.created_at)}
-                    </span>
+                    </div>
 
-                    {c.updated_at &&
-                      <em>
-                        Edited
-                      </em>
-                    }
+                    <p>
+                      {c.content}
+                    </p>
 
                   </div>
 
-                  <p>
-                    {c.content}
-                  </p>
-
                 </div>
-
-              </div>
             )}
 
           </div>
@@ -2104,10 +3153,19 @@ function TaskDrawer({
             <textarea
               placeholder="Viết bình luận... @mention"
               value={comment}
-              onChange={e=>setComment(e.target.value)}
+              onChange={e=>
+                setComment(
+                  e.target.value
+                )
+              }
               onKeyDown={e=>{
                 if(
-                  (e.ctrlKey||e.metaKey) &&
+                  (
+                    e.ctrlKey
+                    ||
+                    e.metaKey
+                  )
+                  &&
                   e.key==='Enter'
                 ){
                   addComment()
@@ -2117,7 +3175,9 @@ function TaskDrawer({
 
             <button
               className="primary"
-              onClick={addComment}
+              onClick={
+                addComment
+              }
             >
               Gửi
             </button>
@@ -2132,33 +3192,49 @@ function TaskDrawer({
             Activity
           </h3>
 
-          {activity.map(a=>
-            <div
-              className="activityLine"
-              key={a.id}
-            >
+          {activity.map(
+            a=>
+              <div
+                className="activityLine"
+                key={a.id}
+              >
 
-              <span>
-                •
-              </span>
+                <span>
+                  •
+                </span>
 
-              <div>
+                <div>
 
-                <b>
-                  {a.profiles?.full_name||'System'}
-                </b>
+                  <b>
+                    {
+                      a.profiles
+                        ?.full_name
+                      ||
+                      'System'
+                    }
+                  </b>
 
-                {' '}
+                  {' '}
 
-                {a.action.replaceAll('_',' ')}
+                  {
+                    a.action
+                      .replaceAll(
+                        '_',
+                        ' '
+                      )
+                  }
 
-                <small>
-                  {fmtDateTime(a.created_at)}
-                </small>
+                  <small>
+                    {
+                      fmtDateTime(
+                        a.created_at
+                      )
+                    }
+                  </small>
+
+                </div>
 
               </div>
-
-            </div>
           )}
 
         </section>
@@ -2170,10 +3246,18 @@ function TaskDrawer({
   </div>
 }
 
-function Field({label,children}){
+function Field({
+  label,
+  children
+}){
   return <label className="field">
-    <span>{label}</span>
+
+    <span>
+      {label}
+    </span>
+
     {children}
+
   </label>
 }
 
@@ -2186,8 +3270,13 @@ function HomeDashboard({
     <div className="pageHead">
 
       <div>
-        <h1>Home</h1>
-        <p>Tổng quan workspace.</p>
+        <h1>
+          Home
+        </h1>
+
+        <p>
+          Tổng quan workspace.
+        </p>
       </div>
 
     </div>
@@ -2196,28 +3285,34 @@ function HomeDashboard({
 
       <Stat
         label="Projects"
-        value={projects.length}
+        value={
+          projects.length
+        }
       />
 
       <Stat
         label="Active"
         value={
           projects.filter(
-            p=>p.status==='active'
+            p=>
+              p.status==='active'
           ).length
         }
       />
 
       <Stat
         label="Members"
-        value={members.length}
+        value={
+          members.length
+        }
       />
 
       <Stat
         label="At risk"
         value={
           projects.filter(
-            p=>p.health==='at_risk'
+            p=>
+              p.health==='at_risk'
           ).length
         }
       />
@@ -2231,20 +3326,40 @@ function MyTasks({
   membership,
   onOpenProject
 }){
-  const [rows,setRows]=useState([])
-  const [loading,setLoading]=useState(true)
+
+  const [
+    rows,
+    setRows
+  ] = useState([])
+
+  const [
+    loading,
+    setLoading
+  ] = useState(true)
 
   useEffect(()=>{
 
-    if(!membership?.user_id) return
+    if(
+      !membership?.user_id
+    ){
+      return
+    }
 
     setLoading(true)
 
     supabase
       .from('tasks')
-      .select('*, project:projects(*)')
-      .eq('assignee_id',membership.user_id)
-      .is('archived_at',null)
+      .select(
+        '*, project:projects(*)'
+      )
+      .eq(
+        'assignee_id',
+        membership.user_id
+      )
+      .is(
+        'archived_at',
+        null
+      )
       .order(
         'due_at',
         {
@@ -2252,22 +3367,31 @@ function MyTasks({
           nullsFirst:false
         }
       )
-      .then(({data})=>{
-        setRows(data||[])
-        setLoading(false)
-      })
+      .then(
+        ({data})=>{
+          setRows(data||[])
+          setLoading(false)
+        }
+      )
 
-  },[membership?.user_id])
+  },[
+    membership?.user_id
+  ])
 
   return <section className="page">
 
     <div className="pageHead">
 
       <div>
-        <h1>My Tasks</h1>
+
+        <h1>
+          My Tasks
+        </h1>
+
         <p>
           Task của bạn từ tất cả Project.
         </p>
+
       </div>
 
     </div>
@@ -2280,41 +3404,71 @@ function MyTasks({
           </div>
 
         : rows.length
-          ? rows.map(t=>
-              <button
-                className="memberRow"
-                key={t.id}
-                onClick={()=>
-                  t.project &&
-                  onOpenProject?.(t.project)
-                }
-              >
+          ? rows.map(
+              t=>
+                <button
+                  className="memberRow"
+                  key={t.id}
+                  onClick={()=>
+                    t.project
+                    &&
+                    onOpenProject?.(
+                      t.project
+                    )
+                  }
+                >
 
-                <span className={'statusBadge '+t.status}>
-                  {LABEL[t.status]||t.status}
-                </span>
+                  <span
+                    className={
+                      'statusBadge '+
+                      t.status
+                    }
+                  >
+                    {
+                      LABEL[t.status]
+                      ||
+                      t.status
+                    }
+                  </span>
 
-                <span>
+                  <span>
 
-                  <b>{t.title}</b>
+                    <b>
+                      {t.title}
+                    </b>
 
-                  <small>
-                    {t.project?.name||'Personal task'}
-                    {' · '}
-                    {t.code}
-                  </small>
+                    <small>
+                      {
+                        t.project
+                          ?.name
+                        ||
+                        'Personal task'
+                      }
+                      {' · '}
+                      {t.code}
+                    </small>
 
-                </span>
+                  </span>
 
-                <span>
-                  {fmtDate(t.due_at)}
-                </span>
+                  <span>
+                    {
+                      fmtDate(
+                        t.due_at
+                      )
+                    }
+                  </span>
 
-                <span>
-                  {PRIORITY[t.priority]||t.priority}
-                </span>
+                  <span>
+                    {
+                      PRIORITY[
+                        t.priority
+                      ]
+                      ||
+                      t.priority
+                    }
+                  </span>
 
-              </button>
+                </button>
             )
 
           : <div className="empty">
@@ -2338,11 +3492,15 @@ function Teams({
     <div className="pageHead">
 
       <div>
-        <h1>Teams</h1>
+
+        <h1>
+          Teams
+        </h1>
 
         <p>
           Team, Team Lead, Project và workload trong workspace.
         </p>
+
       </div>
 
       {canCreate &&
@@ -2358,63 +3516,78 @@ function Teams({
 
     <div className="projectGrid">
 
-      {teams.map(t=>
-        <article
-          className="projectCard"
-          key={t.id}
-        >
+      {teams.map(
+        t=>
+          <article
+            className="projectCard"
+            key={t.id}
+          >
 
-          <div className="projectIcon">
-            {(t.code||'T').slice(0,2)}
-          </div>
-
-          <div className="projectMeta">
-
-            <span>
-              {t.code}
-            </span>
-
-            <span>
+            <div className="projectIcon">
               {
-                projects.filter(
-                  p=>p.team_id===t.id
-                ).length
+                (t.code||'T')
+                  .slice(0,2)
               }
-              {' '}
-              Projects
-            </span>
+            </div>
 
-          </div>
+            <div className="projectMeta">
 
-          <h3>
-            {t.name}
-          </h3>
+              <span>
+                {t.code}
+              </span>
 
-          <p>
-            {t.description||'Chưa có mô tả Team.'}
-          </p>
+              <span>
+                {
+                  projects.filter(
+                    p=>
+                      p.team_id===t.id
+                  ).length
+                }
+                {' '}
+                Projects
+              </span>
 
-          <div className="projectFoot">
+            </div>
 
-            <span>
-              Lead: {t.lead?.full_name||'Chưa gán'}
-            </span>
+            <h3>
+              {t.name}
+            </h3>
 
-            <span>
+            <p>
               {
-                projects.filter(
-                  p=>
-                    p.team_id===t.id &&
-                    p.status==='active'
-                ).length
+                t.description
+                ||
+                'Chưa có mô tả Team.'
               }
-              {' '}
-              active
-            </span>
+            </p>
 
-          </div>
+            <div className="projectFoot">
 
-        </article>
+              <span>
+                Lead: {
+                  t.lead
+                    ?.full_name
+                  ||
+                  'Chưa gán'
+                }
+              </span>
+
+              <span>
+                {
+                  projects.filter(
+                    p=>
+                      p.team_id===t.id
+                      &&
+                      p.status==='active'
+                  ).length
+                }
+                {' '}
+                active
+              </span>
+
+            </div>
+
+          </article>
       )}
 
       {!teams.length &&
@@ -2438,6 +3611,7 @@ function Members({
     <div className="pageHead">
 
       <div>
+
         <h1>
           Members & Permissions
         </h1>
@@ -2445,6 +3619,7 @@ function Members({
         <p>
           Trưởng phòng quản lý role, team, quyền mở rộng và link mời.
         </p>
+
       </div>
 
       <button
@@ -2458,39 +3633,54 @@ function Members({
 
     <div className="panel memberTable">
 
-      {members.map(m=>
-        <button
-          className="memberRow"
-          key={m.id}
-          onClick={()=>onOpen(m)}
-        >
+      {members.map(
+        m=>
+          <button
+            className="memberRow"
+            key={m.id}
+            onClick={()=>
+              onOpen(m)
+            }
+          >
 
-          <Avatar p={m.profiles}/>
+            <Avatar
+              p={m.profiles}
+            />
 
-          <span>
+            <span>
 
-            <b>
+              <b>
+                {
+                  m.profiles
+                    ?.full_name
+                  ||
+                  m.profiles
+                    ?.email
+                }
+              </b>
+
+              <small>
+                {
+                  m.profiles
+                    ?.email
+                }
+              </small>
+
+            </span>
+
+            <span>
               {
-                m.profiles?.full_name ||
-                m.profiles?.email
+                m.teams?.name
+                ||
+                '—'
               }
-            </b>
+            </span>
 
-            <small>
-              {m.profiles?.email}
-            </small>
+            <span className="rolePill">
+              {m.role}
+            </span>
 
-          </span>
-
-          <span>
-            {m.teams?.name||'—'}
-          </span>
-
-          <span className="rolePill">
-            {m.role}
-          </span>
-
-        </button>
+          </button>
       )}
 
     </div>
@@ -2507,11 +3697,15 @@ function Reports({
     <div className="pageHead">
 
       <div>
-        <h1>Reports</h1>
+
+        <h1>
+          Reports
+        </h1>
 
         <p>
           Report theo Project, Team, Member và deadline.
         </p>
+
       </div>
 
     </div>
@@ -2520,12 +3714,16 @@ function Reports({
 
       <Stat
         label="Projects"
-        value={projects.length}
+        value={
+          projects.length
+        }
       />
 
       <Stat
         label="Members"
-        value={members.length}
+        value={
+          members.length
+        }
       />
 
     </div>
@@ -2541,41 +3739,73 @@ function MemberDrawer({
   onSaved
 }){
 
-  const [role,setRole]=useState(item.role)
+  const [
+    role,
+    setRole
+  ] = useState(
+    item.role
+  )
 
-  const [teamId,setTeamId]=useState(
+  const [
+    teamId,
+    setTeamId
+  ] = useState(
     item.team_id||''
   )
 
-  const [perms,setPerms]=useState({
-    can_create_project:!!item.can_create_project,
-    can_review_task:!!item.can_review_task,
-    can_assign_outside_project:!!item.can_assign_outside_project,
-    can_view_team_report:!!item.can_view_team_report,
-    can_archive_project:!!item.can_archive_project
+  const [
+    perms,
+    setPerms
+  ] = useState({
+    can_create_project:
+      !!item.can_create_project,
+    can_review_task:
+      !!item.can_review_task,
+    can_assign_outside_project:
+      !!item.can_assign_outside_project,
+    can_view_team_report:
+      !!item.can_view_team_report,
+    can_archive_project:
+      !!item.can_archive_project
   })
 
-  const [saving,setSaving]=useState(false)
-  const [saved,setSaved]=useState(false)
-  const [reassignTo,setReassignTo]=useState('')
-  const [removing,setRemoving]=useState(false)
+  const [
+    saving,
+    setSaving
+  ] = useState(false)
+
+  const [
+    saved,
+    setSaved
+  ] = useState(false)
 
   async function save(){
 
     setSaving(true)
     setSaved(false)
 
-    const {data,error}=await supabase.rpc(
+    const {
+      data,
+      error
+    } = await supabase.rpc(
       'update_member_permissions_safe',
       {
-        p_membership_id:item.id,
-        p_role:role,
-        p_team_id:teamId||null,
-        p_can_create_project:perms.can_create_project,
-        p_can_review_task:perms.can_review_task,
-        p_can_assign_outside_project:perms.can_assign_outside_project,
-        p_can_view_team_report:perms.can_view_team_report,
-        p_can_archive_project:perms.can_archive_project
+        p_membership_id:
+          item.id,
+        p_role:
+          role,
+        p_team_id:
+          teamId||null,
+        p_can_create_project:
+          perms.can_create_project,
+        p_can_review_task:
+          perms.can_review_task,
+        p_can_assign_outside_project:
+          perms.can_assign_outside_project,
+        p_can_view_team_report:
+          perms.can_view_team_report,
+        p_can_archive_project:
+          perms.can_archive_project
       }
     )
 
@@ -2583,61 +3813,22 @@ function MemberDrawer({
 
     if(error){
       alert(
-        'Không lưu được quyền: '+error.message
+        'Không lưu được quyền: '+
+        error.message
       )
       return
     }
 
     setSaved(true)
 
-    await onSaved?.(data)
+    await onSaved?.(
+      data
+    )
 
     setTimeout(
       ()=>setSaved(false),
       1800
     )
-  }
-
-  async function removeMember(){
-
-    const reason=window.prompt(
-      'Lý do remove khỏi workspace (tuỳ chọn):',
-      'Rời team / kết thúc cộng tác'
-    )
-
-    if(reason===null) return
-
-    if(
-      !window.confirm(
-        `Xóa quyền truy cập workspace của ${
-          item.profiles?.full_name ||
-          item.profiles?.email
-        }? Lịch sử task/comment vẫn được giữ.`
-      )
-    ){
-      return
-    }
-
-    setRemoving(true)
-
-    const {error}=await supabase.rpc(
-      'remove_workspace_member_safe',
-      {
-        p_membership_id:item.id,
-        p_reason:reason||null,
-        p_reassign_to:reassignTo||null
-      }
-    )
-
-    setRemoving(false)
-
-    if(error){
-      alert(error.message)
-      return
-    }
-
-    await onSaved?.()
-    onClose()
   }
 
   return <div className="drawerWrap">
@@ -2650,7 +3841,9 @@ function MemberDrawer({
           Member permissions
         </h2>
 
-        <button onClick={onClose}>
+        <button
+          onClick={onClose}
+        >
           ×
         </button>
 
@@ -2666,11 +3859,17 @@ function MemberDrawer({
           />
 
           <h3>
-            {item.profiles?.full_name}
+            {
+              item.profiles
+                ?.full_name
+            }
           </h3>
 
           <p>
-            {item.profiles?.email}
+            {
+              item.profiles
+                ?.email
+            }
           </p>
 
         </div>
@@ -2680,7 +3879,9 @@ function MemberDrawer({
           <select
             value={role}
             onChange={e=>{
-              setRole(e.target.value)
+              setRole(
+                e.target.value
+              )
               setSaved(false)
             }}
           >
@@ -2706,7 +3907,9 @@ function MemberDrawer({
           <select
             value={teamId}
             onChange={e=>{
-              setTeamId(e.target.value)
+              setTeamId(
+                e.target.value
+              )
               setSaved(false)
             }}
           >
@@ -2715,13 +3918,14 @@ function MemberDrawer({
               —
             </option>
 
-            {teams.map(t=>
-              <option
-                key={t.id}
-                value={t.id}
-              >
-                {t.name}
-              </option>
+            {teams.map(
+              t=>
+                <option
+                  key={t.id}
+                  value={t.id}
+                >
+                  {t.name}
+                </option>
             )}
 
           </select>
@@ -2732,29 +3936,42 @@ function MemberDrawer({
           Custom permissions
         </h3>
 
-        {Object.keys(perms).map(k=>
-          <label
-            className="toggleLine"
-            key={k}
-          >
+        {Object.keys(
+          perms
+        ).map(
+          k=>
+            <label
+              className="toggleLine"
+              key={k}
+            >
 
-            <span>
-              {k.replaceAll('_',' ')}
-            </span>
+              <span>
+                {
+                  k.replaceAll(
+                    '_',
+                    ' '
+                  )
+                }
+              </span>
 
-            <input
-              type="checkbox"
-              checked={perms[k]}
-              onChange={e=>{
-                setPerms({
-                  ...perms,
-                  [k]:e.target.checked
-                })
-                setSaved(false)
-              }}
-            />
+              <input
+                type="checkbox"
+                checked={
+                  perms[k]
+                }
+                onChange={e=>{
 
-          </label>
+                  setPerms({
+                    ...perms,
+                    [k]:
+                      e.target.checked
+                  })
+
+                  setSaved(false)
+                }}
+              />
+
+            </label>
         )}
 
         <button
@@ -2786,29 +4003,66 @@ function ProjectMemberDrawer({
   onSaved
 }){
 
-  const existingIds=new Set(
-    (projectMembers||[]).map(
-      x=>x.user_id
-    )
-  )
-
-  const available=(workspaceMembers||[])
-    .filter(
-      x=>
-        x.status==='active' &&
-        !existingIds.has(x.user_id)
+  const existingIds=
+    new Set(
+      (projectMembers||[])
+        .map(
+          x=>x.user_id
+        )
     )
 
-  const [userId,setUserId]=useState(
-    available[0]?.user_id||''
+  const available=
+    (workspaceMembers||[])
+      .filter(
+        x=>
+          x.status==='active'
+          &&
+          !existingIds.has(
+            x.user_id
+          )
+      )
+
+  const [
+    userId,
+    setUserId
+  ] = useState(
+    available[0]
+      ?.user_id
+    ||
+    ''
   )
 
-  const [role,setRole]=useState('member')
-  const [canCreateTask,setCanCreateTask]=useState(true)
-  const [canAssignTask,setCanAssignTask]=useState(true)
-  const [canManageMembers,setCanManageMembers]=useState(false)
-  const [saving,setSaving]=useState(false)
-  const [error,setError]=useState('')
+  const [
+    role,
+    setRole
+  ] = useState(
+    'member'
+  )
+
+  const [
+    canCreateTask,
+    setCanCreateTask
+  ] = useState(true)
+
+  const [
+    canAssignTask,
+    setCanAssignTask
+  ] = useState(true)
+
+  const [
+    canManageMembers,
+    setCanManageMembers
+  ] = useState(false)
+
+  const [
+    saving,
+    setSaving
+  ] = useState(false)
+
+  const [
+    error,
+    setError
+  ] = useState('')
 
   async function submit(){
 
@@ -2822,22 +4076,32 @@ function ProjectMemberDrawer({
     setSaving(true)
     setError('')
 
-    const {error:e}=await supabase.rpc(
+    const {
+      error:e
+    } = await supabase.rpc(
       'add_project_member_safe',
       {
-        p_project_id:project.id,
-        p_user_id:userId,
-        p_role_in_project:role,
-        p_can_create_task:canCreateTask,
-        p_can_assign_task:canAssignTask,
-        p_can_manage_project_members:canManageMembers
+        p_project_id:
+          project.id,
+        p_user_id:
+          userId,
+        p_role_in_project:
+          role,
+        p_can_create_task:
+          canCreateTask,
+        p_can_assign_task:
+          canAssignTask,
+        p_can_manage_project_members:
+          canManageMembers
       }
     )
 
     setSaving(false)
 
     if(e){
-      setError(e.message)
+      setError(
+        e.message
+      )
       return
     }
 
@@ -2847,7 +4111,9 @@ function ProjectMemberDrawer({
   return <div
     className="drawerWrap"
     onMouseDown={e=>
-      e.target===e.currentTarget &&
+      e.target===
+      e.currentTarget
+      &&
       onClose()
     }
   >
@@ -2868,7 +4134,9 @@ function ProjectMemberDrawer({
 
         </div>
 
-        <button onClick={onClose}>
+        <button
+          onClick={onClose}
+        >
           ×
         </button>
 
@@ -2881,7 +4149,9 @@ function ProjectMemberDrawer({
           <select
             value={userId}
             onChange={e=>
-              setUserId(e.target.value)
+              setUserId(
+                e.target.value
+              )
             }
           >
 
@@ -2891,21 +4161,25 @@ function ProjectMemberDrawer({
               </option>
             }
 
-            {available.map(m=>
-              <option
-                key={m.user_id}
-                value={m.user_id}
-              >
-                {
-                  m.profiles?.full_name ||
-                  m.profiles?.email
-                }
-                {
-                  m.teams?.name
-                    ? ` · ${m.teams.name}`
-                    : ''
-                }
-              </option>
+            {available.map(
+              m=>
+                <option
+                  key={m.user_id}
+                  value={m.user_id}
+                >
+                  {
+                    m.profiles
+                      ?.full_name
+                    ||
+                    m.profiles
+                      ?.email
+                  }
+                  {
+                    m.teams?.name
+                      ? ` · ${m.teams.name}`
+                      : ''
+                  }
+                </option>
             )}
 
           </select>
@@ -2917,7 +4191,9 @@ function ProjectMemberDrawer({
           <select
             value={role}
             onChange={e=>
-              setRole(e.target.value)
+              setRole(
+                e.target.value
+              )
             }
           >
 
@@ -2945,7 +4221,9 @@ function ProjectMemberDrawer({
 
           <input
             type="checkbox"
-            checked={canCreateTask}
+            checked={
+              canCreateTask
+            }
             onChange={e=>
               setCanCreateTask(
                 e.target.checked
@@ -2963,7 +4241,9 @@ function ProjectMemberDrawer({
 
           <input
             type="checkbox"
-            checked={canAssignTask}
+            checked={
+              canAssignTask
+            }
             onChange={e=>
               setCanAssignTask(
                 e.target.checked
@@ -2981,7 +4261,9 @@ function ProjectMemberDrawer({
 
           <input
             type="checkbox"
-            checked={canManageMembers}
+            checked={
+              canManageMembers
+            }
             onChange={e=>
               setCanManageMembers(
                 e.target.checked
@@ -2999,7 +4281,11 @@ function ProjectMemberDrawer({
 
         <button
           className="primary full"
-          disabled={saving||!userId}
+          disabled={
+            saving
+            ||
+            !userId
+          }
           onClick={submit}
         >
           {
@@ -3023,7 +4309,10 @@ function NotificationPanel({
   onChanged
 }){
 
-  const [localPrefs,setLocalPrefs]=useState(
+  const [
+    localPrefs,
+    setLocalPrefs
+  ] = useState(
     prefs||{
       email_assigned:true,
       email_comment:false,
@@ -3034,7 +4323,10 @@ function NotificationPanel({
     }
   )
 
-  const [saving,setSaving]=useState(false)
+  const [
+    saving,
+    setSaving
+  ] = useState(false)
 
   async function markRead(id){
 
@@ -3043,50 +4335,78 @@ function NotificationPanel({
       .update({
         is_read:true
       })
-      .eq('id',id)
+      .eq(
+        'id',
+        id
+      )
 
     onChanged?.()
   }
 
   async function markAll(){
 
-    const {data:{user}}=
-      await supabase.auth.getUser()
+    const {
+      data:{user}
+    } = await supabase
+      .auth
+      .getUser()
 
-    if(!user) return
+    if(!user){
+      return
+    }
 
     await supabase
       .from('notifications')
       .update({
         is_read:true
       })
-      .eq('user_id',user.id)
-      .eq('is_read',false)
+      .eq(
+        'user_id',
+        user.id
+      )
+      .eq(
+        'is_read',
+        false
+      )
 
     onChanged?.()
   }
 
   async function savePrefs(){
 
-    const {data:{user}}=
-      await supabase.auth.getUser()
+    const {
+      data:{user}
+    } = await supabase
+      .auth
+      .getUser()
 
-    if(!user) return
+    if(!user){
+      return
+    }
 
     setSaving(true)
 
-    const {error}=await supabase
-      .from('notification_preferences')
+    const {
+      error
+    } = await supabase
+      .from(
+        'notification_preferences'
+      )
       .upsert({
-        user_id:user.id,
+        user_id:
+          user.id,
         ...localPrefs,
-        updated_at:new Date().toISOString()
+        updated_at:
+          new Date()
+            .toISOString()
       })
 
     setSaving(false)
 
     if(error){
-      alert(error.message)
+      alert(
+        error.message
+      )
     }else{
       onChanged?.()
     }
@@ -3097,7 +4417,10 @@ function NotificationPanel({
     <div className="notificationHead">
 
       <div>
-        <b>Thông báo</b>
+
+        <b>
+          Thông báo
+        </b>
 
         <small>
           {
@@ -3108,15 +4431,20 @@ function NotificationPanel({
           {' '}
           chưa đọc
         </small>
+
       </div>
 
       <div>
 
-        <button onClick={markAll}>
+        <button
+          onClick={markAll}
+        >
           Đánh dấu đã đọc
         </button>
 
-        <button onClick={onClose}>
+        <button
+          onClick={onClose}
+        >
           ×
         </button>
 
@@ -3126,38 +4454,46 @@ function NotificationPanel({
 
     <div className="notificationList">
 
-      {notifications.map(n=>
-        <button
-          key={n.id}
-          className={
-            'notificationItem '+(
-              !n.is_read
-                ? 'unread'
-                : ''
-            )
-          }
-          onClick={()=>markRead(n.id)}
-        >
+      {notifications.map(
+        n=>
+          <button
+            key={n.id}
+            className={
+              'notificationItem '+
+              (
+                !n.is_read
+                  ? 'unread'
+                  : ''
+              )
+            }
+            onClick={()=>
+              markRead(n.id)
+            }
+          >
 
-          <span className="notifDot"/>
+            <span className="notifDot"/>
 
-          <span>
+            <span>
 
-            <b>
-              {n.title}
-            </b>
+              <b>
+                {n.title}
+              </b>
 
-            <small>
-              {n.body}
-            </small>
+              <small>
+                {n.body}
+              </small>
 
-            <em>
-              {fmtDateTime(n.created_at)}
-            </em>
+              <em>
+                {
+                  fmtDateTime(
+                    n.created_at
+                  )
+                }
+              </em>
 
-          </span>
+            </span>
 
-        </button>
+          </button>
       )}
 
       {!notifications.length &&
@@ -3177,19 +4513,31 @@ function TeamCreateDrawer({
   onCreate
 }){
 
-  const [form,setForm]=useState({
+  const [
+    form,
+    setForm
+  ] = useState({
     name:'',
     code:'',
     description:'',
     lead_id:''
   })
 
-  const [saving,setSaving]=useState(false)
-  const [error,setError]=useState('')
+  const [
+    saving,
+    setSaving
+  ] = useState(false)
+
+  const [
+    error,
+    setError
+  ] = useState('')
 
   async function submit(){
 
-    if(!form.name.trim()){
+    if(
+      !form.name.trim()
+    ){
       return setError(
         'Vui lòng nhập tên Team'
       )
@@ -3198,17 +4546,24 @@ function TeamCreateDrawer({
     setSaving(true)
     setError('')
 
-    const r=await onCreate({
-      ...form,
-      name:form.name.trim(),
-      code:form.code.trim().toUpperCase()
-    })
+    const r=
+      await onCreate({
+        ...form,
+        name:
+          form.name.trim(),
+        code:
+          form.code
+            .trim()
+            .toUpperCase()
+      })
 
     setSaving(false)
 
     if(r?.error){
       setError(
-        r.error.message||String(r.error)
+        r.error.message
+        ||
+        String(r.error)
       )
     }
   }
@@ -3216,7 +4571,9 @@ function TeamCreateDrawer({
   return <div
     className="drawerWrap"
     onMouseDown={e=>
-      e.target===e.currentTarget &&
+      e.target===
+      e.currentTarget
+      &&
       onClose()
     }
   >
@@ -3229,7 +4586,9 @@ function TeamCreateDrawer({
           Tạo Team mới
         </h2>
 
-        <button onClick={onClose}>
+        <button
+          onClick={onClose}
+        >
           ×
         </button>
 
@@ -3241,11 +4600,14 @@ function TeamCreateDrawer({
 
           <input
             className="fullInput"
-            value={form.name}
+            value={
+              form.name
+            }
             onChange={e=>
               setForm({
                 ...form,
-                name:e.target.value
+                name:
+                  e.target.value
               })
             }
           />
@@ -3256,11 +4618,14 @@ function TeamCreateDrawer({
 
           <input
             className="fullInput"
-            value={form.code}
+            value={
+              form.code
+            }
             onChange={e=>
               setForm({
                 ...form,
-                code:e.target.value
+                code:
+                  e.target.value
               })
             }
           />
@@ -3271,11 +4636,14 @@ function TeamCreateDrawer({
 
           <textarea
             rows="5"
-            value={form.description}
+            value={
+              form.description
+            }
             onChange={e=>
               setForm({
                 ...form,
-                description:e.target.value
+                description:
+                  e.target.value
               })
             }
           />
@@ -3285,11 +4653,14 @@ function TeamCreateDrawer({
         <Field label="Team Lead">
 
           <select
-            value={form.lead_id}
+            value={
+              form.lead_id
+            }
             onChange={e=>
               setForm({
                 ...form,
-                lead_id:e.target.value
+                lead_id:
+                  e.target.value
               })
             }
           >
@@ -3298,16 +4669,20 @@ function TeamCreateDrawer({
               Chưa gán
             </option>
 
-            {members.map(m=>
-              <option
-                key={m.user_id}
-                value={m.user_id}
-              >
-                {
-                  m.profiles?.full_name ||
-                  m.profiles?.email
-                }
-              </option>
+            {members.map(
+              m=>
+                <option
+                  key={m.user_id}
+                  value={m.user_id}
+                >
+                  {
+                    m.profiles
+                      ?.full_name
+                    ||
+                    m.profiles
+                      ?.email
+                  }
+                </option>
             )}
 
           </select>
@@ -3347,14 +4722,20 @@ function ProjectCreateDrawer({
 }){
 
   const defaultTeam=
-    membership?.team_id ||
-    teams[0]?.id ||
+    membership?.team_id
+    ||
+    teams[0]?.id
+    ||
     ''
 
-  const [form,setForm]=useState({
+  const [
+    form,
+    setForm
+  ] = useState({
     name:'',
     code:'',
-    team_id:defaultTeam,
+    team_id:
+      defaultTeam,
     description:'',
     start_at:'',
     due_at:'',
@@ -3362,18 +4743,29 @@ function ProjectCreateDrawer({
     require_task_review:true
   })
 
-  const [saving,setSaving]=useState(false)
-  const [error,setError]=useState('')
+  const [
+    saving,
+    setSaving
+  ] = useState(false)
+
+  const [
+    error,
+    setError
+  ] = useState('')
 
   async function submit(){
 
-    if(!form.name.trim()){
+    if(
+      !form.name.trim()
+    ){
       return setError(
         'Vui lòng nhập tên Project'
       )
     }
 
-    if(!form.team_id){
+    if(
+      !form.team_id
+    ){
       return setError(
         'Vui lòng chọn Team'
       )
@@ -3382,27 +4774,38 @@ function ProjectCreateDrawer({
     setSaving(true)
     setError('')
 
-    const r=await onCreate({
-      ...form,
-      name:form.name.trim(),
-      code:form.code.trim().toUpperCase(),
-      start_at:form.start_at
-        ? new Date(
-            form.start_at+'T08:00:00'
-          ).toISOString()
-        : null,
-      due_at:form.due_at
-        ? new Date(
-            form.due_at+'T17:00:00'
-          ).toISOString()
-        : null
-    })
+    const r=
+      await onCreate({
+        ...form,
+        name:
+          form.name.trim(),
+        code:
+          form.code
+            .trim()
+            .toUpperCase(),
+        start_at:
+          form.start_at
+            ? new Date(
+                form.start_at+
+                'T08:00:00'
+              ).toISOString()
+            : null,
+        due_at:
+          form.due_at
+            ? new Date(
+                form.due_at+
+                'T17:00:00'
+              ).toISOString()
+            : null
+      })
 
     setSaving(false)
 
     if(r?.error){
       setError(
-        r.error.message||String(r.error)
+        r.error.message
+        ||
+        String(r.error)
       )
     }
   }
@@ -3410,7 +4813,9 @@ function ProjectCreateDrawer({
   return <div
     className="drawerWrap"
     onMouseDown={e=>
-      e.target===e.currentTarget &&
+      e.target===
+      e.currentTarget
+      &&
       onClose()
     }
   >
@@ -3423,7 +4828,9 @@ function ProjectCreateDrawer({
           Tạo Project mới
         </h2>
 
-        <button onClick={onClose}>
+        <button
+          onClick={onClose}
+        >
           ×
         </button>
 
@@ -3435,11 +4842,14 @@ function ProjectCreateDrawer({
 
           <input
             className="fullInput"
-            value={form.name}
+            value={
+              form.name
+            }
             onChange={e=>
               setForm({
                 ...form,
-                name:e.target.value
+                name:
+                  e.target.value
               })
             }
           />
@@ -3450,11 +4860,14 @@ function ProjectCreateDrawer({
 
           <input
             className="fullInput"
-            value={form.code}
+            value={
+              form.code
+            }
             onChange={e=>
               setForm({
                 ...form,
-                code:e.target.value
+                code:
+                  e.target.value
               })
             }
           />
@@ -3464,22 +4877,26 @@ function ProjectCreateDrawer({
         <Field label="Team">
 
           <select
-            value={form.team_id}
+            value={
+              form.team_id
+            }
             onChange={e=>
               setForm({
                 ...form,
-                team_id:e.target.value
+                team_id:
+                  e.target.value
               })
             }
           >
 
-            {teams.map(t=>
-              <option
-                key={t.id}
-                value={t.id}
-              >
-                {t.name}
-              </option>
+            {teams.map(
+              t=>
+                <option
+                  key={t.id}
+                  value={t.id}
+                >
+                  {t.name}
+                </option>
             )}
 
           </select>
@@ -3490,11 +4907,14 @@ function ProjectCreateDrawer({
 
           <textarea
             rows="6"
-            value={form.description}
+            value={
+              form.description
+            }
             onChange={e=>
               setForm({
                 ...form,
-                description:e.target.value
+                description:
+                  e.target.value
               })
             }
           />
@@ -3507,11 +4927,14 @@ function ProjectCreateDrawer({
 
             <input
               type="date"
-              value={form.start_at}
+              value={
+                form.start_at
+              }
               onChange={e=>
                 setForm({
                   ...form,
-                  start_at:e.target.value
+                  start_at:
+                    e.target.value
                 })
               }
             />
@@ -3522,11 +4945,14 @@ function ProjectCreateDrawer({
 
             <input
               type="date"
-              value={form.due_at}
+              value={
+                form.due_at
+              }
               onChange={e=>
                 setForm({
                   ...form,
-                  due_at:e.target.value
+                  due_at:
+                    e.target.value
                 })
               }
             />
@@ -3538,11 +4964,14 @@ function ProjectCreateDrawer({
         <Field label="Visibility">
 
           <select
-            value={form.visibility}
+            value={
+              form.visibility
+            }
             onChange={e=>
               setForm({
                 ...form,
-                visibility:e.target.value
+                visibility:
+                  e.target.value
               })
             }
           >
@@ -3571,11 +5000,14 @@ function ProjectCreateDrawer({
 
           <input
             type="checkbox"
-            checked={form.require_task_review}
+            checked={
+              form.require_task_review
+            }
             onChange={e=>
               setForm({
                 ...form,
-                require_task_review:e.target.checked
+                require_task_review:
+                  e.target.checked
               })
             }
           />
@@ -3615,17 +5047,36 @@ function InviteDrawer({
   onCreated
 }){
 
-  const [form,setForm]=useState({
-    team_id:membership?.team_id||teams[0]?.id||'',
+  const [
+    form,
+    setForm
+  ] = useState({
+    team_id:
+      membership?.team_id
+      ||
+      teams[0]?.id
+      ||
+      '',
     project_id:'',
     role:'member',
     max_uses:50,
     expires_days:30
   })
 
-  const [saving,setSaving]=useState(false)
-  const [error,setError]=useState('')
-  const [link,setLink]=useState('')
+  const [
+    saving,
+    setSaving
+  ] = useState(false)
+
+  const [
+    error,
+    setError
+  ] = useState('')
+
+  const [
+    link,
+    setLink
+  ] = useState('')
 
   async function create(){
 
@@ -3633,50 +5084,79 @@ function InviteDrawer({
     setError('')
     setLink('')
 
-    const expires =
+    const expires=
       form.expires_days
         ? new Date(
-            Date.now()+
-            Number(form.expires_days)*86400000
+            Date.now()
+            +
+            Number(
+              form.expires_days
+            )*
+            86400000
           ).toISOString()
         : null
 
-    const {data,error:e}=await supabase.rpc(
+    const {
+      data,
+      error:e
+    } = await supabase.rpc(
       'create_invitation_v13',
       {
-        p_team_id:form.team_id||null,
-        p_project_id:form.project_id||null,
-        p_role:form.role,
-        p_expires_at:expires,
-        p_max_uses:Number(form.max_uses)||null
+        p_team_id:
+          form.team_id||null,
+        p_project_id:
+          form.project_id||null,
+        p_role:
+          form.role,
+        p_expires_at:
+          expires,
+        p_max_uses:
+          Number(
+            form.max_uses
+          )
+          ||
+          null
       }
     )
 
     setSaving(false)
 
     if(e){
-      return setError(e.message)
+      return setError(
+        e.message
+      )
     }
 
-    const token=data?.token||data
+    const token=
+      data?.token
+      ||
+      data
 
     const url=
       `${appUrl}/?invite=${encodeURIComponent(token)}`
 
     setLink(url)
+
     onCreated?.()
   }
 
   async function copy(){
+
     try{
-      await navigator.clipboard.writeText(link)
+      await navigator
+        .clipboard
+        .writeText(
+          link
+        )
     }catch{}
   }
 
   return <div
     className="drawerWrap"
     onMouseDown={e=>
-      e.target===e.currentTarget &&
+      e.target===
+      e.currentTarget
+      &&
       onClose()
     }
   >
@@ -3689,7 +5169,9 @@ function InviteDrawer({
           Mời thành viên
         </h2>
 
-        <button onClick={onClose}>
+        <button
+          onClick={onClose}
+        >
           ×
         </button>
 
@@ -3706,11 +5188,14 @@ function InviteDrawer({
         <Field label="Team">
 
           <select
-            value={form.team_id}
+            value={
+              form.team_id
+            }
             onChange={e=>
               setForm({
                 ...form,
-                team_id:e.target.value
+                team_id:
+                  e.target.value
               })
             }
           >
@@ -3719,13 +5204,14 @@ function InviteDrawer({
               Không gán Team
             </option>
 
-            {teams.map(t=>
-              <option
-                key={t.id}
-                value={t.id}
-              >
-                {t.name}
-              </option>
+            {teams.map(
+              t=>
+                <option
+                  key={t.id}
+                  value={t.id}
+                >
+                  {t.name}
+                </option>
             )}
 
           </select>
@@ -3735,11 +5221,14 @@ function InviteDrawer({
         <Field label="Project">
 
           <select
-            value={form.project_id}
+            value={
+              form.project_id
+            }
             onChange={e=>
               setForm({
                 ...form,
-                project_id:e.target.value
+                project_id:
+                  e.target.value
               })
             }
           >
@@ -3748,13 +5237,14 @@ function InviteDrawer({
               Chỉ vào Workspace/Team
             </option>
 
-            {projects.map(p=>
-              <option
-                key={p.id}
-                value={p.id}
-              >
-                {p.name}
-              </option>
+            {projects.map(
+              p=>
+                <option
+                  key={p.id}
+                  value={p.id}
+                >
+                  {p.name}
+                </option>
             )}
 
           </select>
@@ -3764,11 +5254,14 @@ function InviteDrawer({
         <Field label="Role mặc định">
 
           <select
-            value={form.role}
+            value={
+              form.role
+            }
             onChange={e=>
               setForm({
                 ...form,
-                role:e.target.value
+                role:
+                  e.target.value
               })
             }
           >
@@ -3792,11 +5285,14 @@ function InviteDrawer({
             <input
               type="number"
               min="1"
-              value={form.max_uses}
+              value={
+                form.max_uses
+              }
               onChange={e=>
                 setForm({
                   ...form,
-                  max_uses:e.target.value
+                  max_uses:
+                    e.target.value
                 })
               }
             />
@@ -3808,11 +5304,14 @@ function InviteDrawer({
             <input
               type="number"
               min="1"
-              value={form.expires_days}
+              value={
+                form.expires_days
+              }
               onChange={e=>
                 setForm({
                   ...form,
-                  expires_days:e.target.value
+                  expires_days:
+                    e.target.value
                 })
               }
             />
@@ -3892,23 +5391,43 @@ function ProjectFiles(){
   </div>
 }
 
-function ProjectActivity({project}){
+function ProjectActivity({
+  project
+}){
 
-  const [rows,setRows]=useState([])
+  const [
+    rows,
+    setRows
+  ] = useState([])
 
   useEffect(()=>{
 
     supabase
-      .from('project_activity_logs')
+      .from(
+        'project_activity_logs'
+      )
       .select('*')
-      .eq('project_id',project.id)
-      .order('created_at',{ascending:false})
+      .eq(
+        'project_id',
+        project.id
+      )
+      .order(
+        'created_at',
+        {
+          ascending:false
+        }
+      )
       .limit(100)
-      .then(({data})=>
-        setRows(data||[])
+      .then(
+        ({data})=>
+          setRows(
+            data||[]
+          )
       )
 
-  },[project.id])
+  },[
+    project.id
+  ])
 
   return <div className="panel">
 
@@ -3917,24 +5436,32 @@ function ProjectActivity({project}){
     </h3>
 
     {rows.length
-      ? rows.map(x=>
-          <div
-            className="activityLine"
-            key={x.id}
-          >
+      ? rows.map(
+          x=>
+            <div
+              className="activityLine"
+              key={x.id}
+            >
 
-            <span>•</span>
+              <span>
+                •
+              </span>
 
-            <div>
-              {x.action}
+              <div>
 
-              <small>
-                {fmtDateTime(x.created_at)}
-              </small>
+                {x.action}
+
+                <small>
+                  {
+                    fmtDateTime(
+                      x.created_at
+                    )
+                  }
+                </small>
+
+              </div>
 
             </div>
-
-          </div>
         )
 
       : <div className="empty">
