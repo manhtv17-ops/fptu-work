@@ -1,12 +1,28 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from 'react'
+
 import * as XLSX from 'xlsx'
-import { supabase, appUrl } from '../lib/supabase'
+
+import {
+  supabase,
+  appUrl
+} from '../lib/supabase'
+
 import {
   canManageWorkspace,
   canReviewTask
 } from '../lib/permissions'
+
+
+// =====================================================
+// CONSTANTS
+// =====================================================
 
 const STATUS = [
   'todo',
@@ -20,6 +36,7 @@ const LABEL = {
   in_progress:'In Progress',
   review:'Review',
   done:'Done',
+
   planning:'Planning',
   active:'Active',
   on_hold:'On Hold',
@@ -35,7 +52,13 @@ const PRIORITY = {
   urgent:'Urgent'
 }
 
+
+// =====================================================
+// HELPERS
+// =====================================================
+
 function fmtDate(v){
+
   if(!v) return '—'
 
   return new Intl.DateTimeFormat(
@@ -45,10 +68,14 @@ function fmtDate(v){
       month:'2-digit',
       year:'numeric'
     }
-  ).format(new Date(v))
+  ).format(
+    new Date(v)
+  )
 }
 
+
 function fmtDateTime(v){
+
   if(!v) return ''
 
   return new Intl.DateTimeFormat(
@@ -60,17 +87,31 @@ function fmtDateTime(v){
       hour:'2-digit',
       minute:'2-digit'
     }
-  ).format(new Date(v))
+  ).format(
+    new Date(v)
+  )
 }
 
+
 function initials(name=''){
-  return name
-    .split(' ')
-    .slice(-2)
-    .map(x=>x[0])
-    .join('')
-    .toUpperCase() || '?'
+
+  return (
+    name
+      .split(' ')
+      .filter(Boolean)
+      .slice(-2)
+      .map(x=>x[0])
+      .join('')
+      .toUpperCase()
+    ||
+    '?'
+  )
 }
+
+
+// =====================================================
+// MAIN
+// =====================================================
 
 export default function Home(){
 
@@ -94,6 +135,8 @@ export default function Home(){
   const [projectTab,setProjectTab]=useState('overview')
 
   const [taskDrawer,setTaskDrawer]=useState(null)
+  const [focusCommentId,setFocusCommentId]=useState(null)
+
   const [memberDrawer,setMemberDrawer]=useState(null)
 
   const [projectCreateOpen,setProjectCreateOpen]=useState(false)
@@ -104,68 +147,113 @@ export default function Home(){
   const [quickTitle,setQuickTitle]=useState('')
 
   const [toast,setToast]=useState('')
+
   const [notifications,setNotifications]=useState([])
   const [notificationOpen,setNotificationOpen]=useState(false)
   const [notificationPrefs,setNotificationPrefs]=useState(null)
 
   const [taskFilter,setTaskFilter]=useState('all')
 
+
+  // ===================================================
+  // AUTH
+  // ===================================================
+
   useEffect(()=>{
 
     if(!supabase){
-      setError('Thiếu biến môi trường Supabase.')
+
+      setError(
+        'Thiếu biến môi trường Supabase.'
+      )
+
       setLoading(false)
+
       return
     }
+
 
     supabase.auth
       .getSession()
       .then(({data})=>{
 
-        setSession(data.session)
+        setSession(
+          data.session
+        )
 
         if(data.session){
-          bootstrap(data.session.user)
+
+          bootstrap(
+            data.session.user
+          )
+
         }else{
+
           setLoading(false)
         }
-
       })
 
+
     const {data:sub}=
-      supabase.auth.onAuthStateChange(
-        (_event,s)=>{
+      supabase.auth
+        .onAuthStateChange(
+          (_event,s)=>{
 
-          setSession(s)
+            setSession(s)
 
-          if(s){
-            bootstrap(s.user)
-          }else{
-            setProfile(null)
-            setMembership(null)
-            setLoading(false)
+            if(s){
+
+              bootstrap(
+                s.user
+              )
+
+            }else{
+
+              setProfile(null)
+              setMembership(null)
+              setWorkspace(null)
+
+              setLoading(false)
+            }
           }
+        )
 
-        }
-      )
 
     return ()=>{
+
       sub.subscription.unsubscribe()
     }
 
   },[])
 
+
+  // ===================================================
+  // MEMBER DEFAULT FILTER
+  // ===================================================
+
   useEffect(()=>{
 
     if(!membership) return
 
-    if(membership.role==='member'){
+    if(
+      membership.role==='member'
+    ){
+
       setTaskFilter('my')
+
     }else{
+
       setTaskFilter('all')
     }
 
-  },[membership?.role])
+  },[
+    membership?.role
+  ])
+
+
+  // ===================================================
+  // REALTIME NOTIFICATION
+  // ===================================================
 
   useEffect(()=>{
 
@@ -177,7 +265,8 @@ export default function Home(){
       return
     }
 
-    const ch=
+
+    const channel=
       supabase
         .channel(
           'notifications-'+
@@ -193,16 +282,27 @@ export default function Home(){
               `user_id=eq.${session.user.id}`
           },
           ()=>{
-            bootstrap(session.user)
+            loadNotifications()
           }
         )
         .subscribe()
 
+
     return ()=>{
-      supabase.removeChannel(ch)
+
+      supabase.removeChannel(
+        channel
+      )
     }
 
-  },[session?.user?.id])
+  },[
+    session?.user?.id
+  ])
+
+
+  // ===================================================
+  // BOOTSTRAP
+  // ===================================================
 
   async function bootstrap(user){
 
@@ -210,6 +310,11 @@ export default function Home(){
 
       setLoading(true)
       setError('')
+
+
+      // -----------------------------------------------
+      // Invite token
+      // -----------------------------------------------
 
       const invite =
         new URLSearchParams(
@@ -220,12 +325,14 @@ export default function Home(){
           'fptu_invite'
         )
 
+
       if(invite){
 
         sessionStorage.setItem(
           'fptu_invite',
           invite
         )
+
 
         const {
           error:inviteError
@@ -236,21 +343,26 @@ export default function Home(){
           }
         )
 
+
         if(inviteError){
+
           throw new Error(
             'Không thể nhận lời mời: '+
             inviteError.message
           )
         }
 
+
         sessionStorage.removeItem(
           'fptu_invite'
         )
+
 
         if(
           window.location.search
             .includes('invite=')
         ){
+
           history.replaceState(
             {},
             '',
@@ -259,65 +371,106 @@ export default function Home(){
         }
       }
 
-      const {data:p}=await supabase
+
+      // -----------------------------------------------
+      // Profile
+      // -----------------------------------------------
+
+      const {
+        data:p
+      } = await supabase
         .from('profiles')
         .select('*')
-        .eq('id',user.id)
-        .single()
+        .eq(
+          'id',
+          user.id
+        )
+        .maybeSingle()
+
 
       setProfile(
-        p || {
+        p
+        ||
+        {
           id:user.id,
+
           full_name:
-            user.user_metadata?.full_name,
-          email:user.email,
+            user.user_metadata
+              ?.full_name,
+
+          email:
+            user.email,
+
           avatar_url:
-            user.user_metadata?.avatar_url
+            user.user_metadata
+              ?.avatar_url
         }
       )
 
-      const {data:m}=await supabase
+
+      // -----------------------------------------------
+      // Membership
+      // -----------------------------------------------
+
+      const {
+        data:m
+      } = await supabase
         .from('memberships')
-        .select('*, teams(*)')
-        .eq('user_id',user.id)
-        .eq('status','active')
+        .select(
+          '*, teams(*)'
+        )
+        .eq(
+          'user_id',
+          user.id
+        )
+        .eq(
+          'status',
+          'active'
+        )
         .limit(1)
         .maybeSingle()
 
+
       setMembership(m)
 
+
       if(!m){
+
         setLoading(false)
+
         return
       }
 
-      const {data:w}=await supabase
+
+      // -----------------------------------------------
+      // Workspace
+      // -----------------------------------------------
+
+      const {
+        data:w
+      } = await supabase
         .from('workspaces')
         .select('*')
-        .eq('id',m.workspace_id)
+        .eq(
+          'id',
+          m.workspace_id
+        )
         .single()
+
 
       setWorkspace(w)
 
-      /*
-        v16.6:
-        Tất cả active member đều được đọc danh sách member cơ bản
-        của cùng Workspace để add vào Project.
-      */
-      const memberQuery=
-        supabase.rpc(
-          'get_active_workspace_members'
-        )
+
+      // -----------------------------------------------
+      // Load common data
+      // -----------------------------------------------
 
       const [
-        {data:ps},
-        {data:ts},
-        {
-          data:ms,
-          error:membersError
-        },
-        {data:ns},
-        {data:np}
+        projectRes,
+        teamRes,
+        memberRes,
+        notificationRes,
+        prefRes
       ] = await Promise.all([
 
         supabase
@@ -355,7 +508,9 @@ export default function Home(){
           )
           .order('name'),
 
-        memberQuery,
+        supabase.rpc(
+          'get_active_workspace_members'
+        ),
 
         supabase
           .from('notifications')
@@ -370,7 +525,7 @@ export default function Home(){
               ascending:false
             }
           )
-          .limit(30),
+          .limit(50),
 
         supabase
           .from(
@@ -385,51 +540,118 @@ export default function Home(){
 
       ])
 
-      if(membersError){
+
+      if(
+        memberRes.error
+      ){
+
         throw new Error(
           'Không tải được danh sách thành viên: '+
-          membersError.message
+          memberRes.error.message
         )
       }
 
+
       const normalizedMembers=
-        (ms||[]).map(
-          x=>({
-            ...x,
+        (memberRes.data||[])
+          .map(
+            x=>({
 
-            profiles:{
-              id:x.user_id,
-              full_name:x.full_name,
-              email:x.email,
-              avatar_url:x.avatar_url
-            },
+              ...x,
 
-            teams:
-              x.team_id
-                ? {
-                    id:x.team_id,
-                    name:x.team_name,
-                    code:x.team_code
-                  }
-                : null
-          })
-        )
+              profiles:{
+                id:x.user_id,
+                full_name:x.full_name,
+                email:x.email,
+                avatar_url:x.avatar_url
+              },
 
-      setProjects(ps||[])
-      setTeams(ts||[])
-      setMembers(normalizedMembers)
-      setNotifications(ns||[])
-      setNotificationPrefs(np||null)
+              teams:
+                x.team_id
+                  ? {
+                      id:x.team_id,
+                      name:x.team_name,
+                      code:x.team_code
+                    }
+                  : null
+            })
+          )
+
+
+      setProjects(
+        projectRes.data||[]
+      )
+
+      setTeams(
+        teamRes.data||[]
+      )
+
+      setMembers(
+        normalizedMembers
+      )
+
+      setNotifications(
+        notificationRes.data||[]
+      )
+
+      setNotificationPrefs(
+        prefRes.data||null
+      )
+
 
       setLoading(false)
 
     }catch(e){
 
-      setError(e.message)
-      setLoading(false)
+      setError(
+        e.message
+      )
 
+      setLoading(false)
     }
   }
+
+
+  // ===================================================
+  // NOTIFICATION LOAD
+  // ===================================================
+
+  async function loadNotifications(){
+
+    if(
+      !session?.user?.id
+    ){
+      return
+    }
+
+
+    const {
+      data
+    } = await supabase
+      .from('notifications')
+      .select('*')
+      .eq(
+        'user_id',
+        session.user.id
+      )
+      .order(
+        'created_at',
+        {
+          ascending:false
+        }
+      )
+      .limit(50)
+
+
+    setNotifications(
+      data||[]
+    )
+  }
+
+
+  // ===================================================
+  // LOGIN
+  // ===================================================
 
   async function login(){
 
@@ -438,44 +660,56 @@ export default function Home(){
         window.location.search
       ).get('invite')
 
+
     if(invite){
+
       sessionStorage.setItem(
         'fptu_invite',
         invite
       )
     }
 
+
     const redirectTo=
       invite
         ? `${appUrl}/?invite=${encodeURIComponent(invite)}`
         : appUrl
 
+
     await supabase.auth
       .signInWithOAuth({
         provider:'google',
+
         options:{
           redirectTo
         }
       })
   }
 
+
   async function logout(){
 
-    await supabase.auth.signOut()
+    await supabase.auth
+      .signOut()
 
     location.href='/'
   }
 
+
+  // ===================================================
+  // PROJECT LEAD CHECK
+  // ===================================================
+
   function isProjectLead(
     p,
-    projectMemberList
+    pmList
   ){
 
     return (
       p?.lead_id===
         session?.user?.id
       ||
-      (projectMemberList||[])
+      (pmList||[])
         .some(
           x=>
             x.user_id===
@@ -487,11 +721,38 @@ export default function Home(){
     )
   }
 
-  async function openProject(p){
+
+  // ===================================================
+  // OPEN PROJECT
+  // ===================================================
+
+  async function openProject(
+    p,
+    options={}
+  ){
+
+    if(!p) return null
+
 
     setProject(p)
     setView('project')
-    setProjectTab('overview')
+
+
+    if(
+      options.tab
+    ){
+
+      setProjectTab(
+        options.tab
+      )
+
+    }else{
+
+      setProjectTab(
+        'overview'
+      )
+    }
+
 
     const {
       data:pm,
@@ -506,30 +767,36 @@ export default function Home(){
         p.id
       )
 
+
     if(pmError){
+
       alert(
         'Không tải được Project Members: '+
         pmError.message
       )
     }
 
-    const projectMemberList=
+
+    const pmList=
       pm||[]
 
-    const userIsProjectLead=
+
+    const projectLead=
       isProjectLead(
         p,
-        projectMemberList
+        pmList
       )
 
-    const canSeeAllTasks=
+
+    const canSeeAll=
       membership?.role==='manager'
       ||
       membership?.role==='team_lead'
       ||
-      userIsProjectLead
+      projectLead
 
-    let taskQuery=
+
+    let query=
       supabase
         .from('tasks')
         .select(
@@ -544,23 +811,20 @@ export default function Home(){
           null
         )
 
-    /*
-      Member thường:
-      chỉ load task được giao cho chính mình.
-    */
-    if(!canSeeAllTasks){
 
-      taskQuery=
-        taskQuery.eq(
-          'assignee_id',
-          session.user.id
-        )
+    if(!canSeeAll){
+
+      query=query.eq(
+        'assignee_id',
+        session.user.id
+      )
     }
+
 
     const {
       data:t,
       error:taskError
-    } = await taskQuery
+    } = await query
       .order(
         'created_at',
         {
@@ -568,41 +832,255 @@ export default function Home(){
         }
       )
 
+
     if(taskError){
+
       alert(
         'Không tải được task: '+
         taskError.message
       )
     }
 
+
+    const taskList=
+      t||[]
+
+
     setProjectMembers(
-      projectMemberList
+      pmList
     )
 
     setTasks(
-      t||[]
+      taskList
     )
 
-    if(canSeeAllTasks){
-      setTaskFilter('all')
-    }else{
-      setTaskFilter('my')
+
+    setTaskFilter(
+      canSeeAll
+        ? 'all'
+        : 'my'
+    )
+
+
+    return {
+      members:pmList,
+      tasks:taskList
     }
   }
 
-  async function createTeam(payload){
+
+  // ===================================================
+  // NOTIFICATION DEEP LINK
+  // ===================================================
+
+  async function openNotification(n){
+
+    try{
+
+      // mark read trước
+      if(!n.is_read){
+
+        await supabase
+          .from('notifications')
+          .update({
+            is_read:true
+          })
+          .eq(
+            'id',
+            n.id
+          )
+      }
+
+
+      setNotifications(
+        prev=>
+          prev.map(
+            x=>
+              x.id===n.id
+                ? {
+                    ...x,
+                    is_read:true
+                  }
+                : x
+          )
+      )
+
+
+      setNotificationOpen(false)
+
+
+      let projectId=
+        n.project_id||null
+
+      let taskId=
+        n.task_id||null
+
+
+      // Notification cũ chỉ có task_id
+      if(
+        !projectId
+        &&
+        taskId
+      ){
+
+        const {
+          data:t
+        } = await supabase
+          .from('tasks')
+          .select(
+            'id,project_id'
+          )
+          .eq(
+            'id',
+            taskId
+          )
+          .maybeSingle()
+
+
+        projectId=
+          t?.project_id||null
+      }
+
+
+      if(!projectId){
+
+        showToast(
+          'Thông báo này chưa có liên kết Project'
+        )
+
+        return
+      }
+
+
+      let targetProject=
+        projects.find(
+          x=>x.id===projectId
+        )
+
+
+      if(!targetProject){
+
+        const {
+          data:p
+        } = await supabase
+          .from('projects')
+          .select(
+            '*, teams(name,code), profiles!projects_lead_id_fkey(full_name,avatar_url)'
+          )
+          .eq(
+            'id',
+            projectId
+          )
+          .maybeSingle()
+
+
+        targetProject=p
+      }
+
+
+      if(!targetProject){
+
+        showToast(
+          'Không tìm thấy Project'
+        )
+
+        return
+      }
+
+
+      const opened=
+        await openProject(
+          targetProject,
+          {
+            tab:'list'
+          }
+        )
+
+
+      if(!taskId){
+
+        return
+      }
+
+
+      let targetTask=
+        opened?.tasks
+          ?.find(
+            x=>x.id===taskId
+          )
+
+
+      // Task có thể chưa nằm trong query hiện tại
+      if(!targetTask){
+
+        const {
+          data:t
+        } = await supabase
+          .from('tasks')
+          .select(
+            '*, profiles!tasks_assignee_id_fkey(full_name,avatar_url,email), project:projects(name,code)'
+          )
+          .eq(
+            'id',
+            taskId
+          )
+          .maybeSingle()
+
+
+        targetTask=t
+      }
+
+
+      if(!targetTask){
+
+        showToast(
+          'Không tìm thấy Task'
+        )
+
+        return
+      }
+
+
+      setFocusCommentId(
+        n.comment_id||null
+      )
+
+
+      setTaskDrawer(
+        targetTask
+      )
+
+    }catch(e){
+
+      alert(
+        'Không mở được thông báo: '+
+        e.message
+      )
+    }
+  }
+
+
+  // ===================================================
+  // CREATE TEAM
+  // ===================================================
+
+  async function createTeam(
+    payload
+  ){
 
     if(
       !canManageWorkspace(
         membership
       )
     ){
+
       return {
         error:new Error(
           'Chỉ Trưởng phòng được tạo Team'
         )
       }
     }
+
 
     const {
       data,
@@ -624,70 +1102,40 @@ export default function Home(){
       }
     )
 
+
     if(e){
+
       return {
         error:e
       }
     }
 
-    const id=
-      data?.id||data
 
-    const {
-      data:created,
-      error:readError
-    } = await supabase
-      .from('teams')
-      .select(
-        '*, lead:profiles!teams_lead_id_fkey(full_name,email,avatar_url)'
-      )
-      .eq(
-        'id',
-        id
-      )
-      .single()
-
-    if(readError){
-      return {
-        error:readError
-      }
-    }
-
-    setTeams(
-      prev=>[
-        created,
-        ...prev.filter(
-          x=>x.id!==created.id
-        )
-      ].sort(
-        (a,b)=>
-          a.name.localeCompare(
-            b.name
-          )
-      )
-    )
+    setTeamCreateOpen(false)
 
     showToast(
       'Đã tạo Team'
     )
 
-    setTeamCreateOpen(false)
 
     await bootstrap(
       session.user
     )
 
+
     return {
-      data:created
+      data
     }
   }
 
-  /*
-    v16.5:
-    mọi active member được tạo Project.
-    RPC sẽ tự biến creator thành Project Lead.
-  */
-  async function createProject(payload){
+
+  // ===================================================
+  // CREATE PROJECT
+  // ===================================================
+
+  async function createProject(
+    payload
+  ){
 
     const {
       data,
@@ -722,14 +1170,18 @@ export default function Home(){
       }
     )
 
+
     if(e){
+
       return {
         error:e
       }
     }
 
+
     const id=
       data?.id||data
+
 
     const {
       data:created,
@@ -745,11 +1197,14 @@ export default function Home(){
       )
       .single()
 
+
     if(readError){
+
       return {
         error:readError
       }
     }
+
 
     setProjects(
       prev=>[
@@ -760,20 +1215,29 @@ export default function Home(){
       ]
     )
 
+
+    setProjectCreateOpen(false)
+
+
     showToast(
       'Đã tạo Project'
     )
 
-    setProjectCreateOpen(false)
 
     await openProject(
       created
     )
 
+
     return {
       data:created
     }
   }
+
+
+  // ===================================================
+  // CURRENT PROJECT PERMISSION
+  // ===================================================
 
   const currentProjectMember=
     projectMembers.find(
@@ -781,6 +1245,7 @@ export default function Home(){
         x.user_id===
           session?.user?.id
     )
+
 
   const currentUserIsProjectLead=
     project
@@ -794,11 +1259,7 @@ export default function Home(){
         )
       : false
 
-  /*
-    Member trong Project có can_create_task
-    hoặc Project Lead / Team Lead / Manager
-    đều được tạo task.
-  */
+
   const canTask=
     !!project
     &&
@@ -813,10 +1274,16 @@ export default function Home(){
       currentUserIsProjectLead
     )
 
+
+  // ===================================================
+  // CREATE TASK
+  // ===================================================
+
   async function quickCreateTask(){
 
     const title=
       quickTitle.trim()
+
 
     if(
       !title
@@ -827,6 +1294,7 @@ export default function Home(){
     ){
       return
     }
+
 
     const {
       data:taskId,
@@ -845,16 +1313,20 @@ export default function Home(){
       }
     )
 
+
     if(e){
-      return alert(
+
+      alert(
         'Không tạo được task: '+
         e.message
       )
+
+      return
     }
 
+
     const {
-      data,
-      error:readError
+      data
     } = await supabase
       .from('tasks')
       .select(
@@ -866,33 +1338,33 @@ export default function Home(){
       )
       .single()
 
-    if(readError){
-      return alert(
-        'Task đã tạo nhưng không tải lại được: '+
-        readError.message
+
+    if(data){
+
+      setTasks(
+        prev=>[
+          data,
+          ...prev.filter(
+            x=>x.id!==data.id
+          )
+        ]
       )
     }
 
-    setTasks(
-      [
-        data,
-        ...tasks.filter(
-          x=>x.id!==data.id
-        )
-      ]
-    )
 
     setQuickTitle('')
+
 
     showToast(
       'Đã thêm task'
     )
   }
 
-  /*
-    Status update đi qua RPC riêng,
-    assignee được tự đổi trạng thái task của mình.
-  */
+
+  // ===================================================
+  // UPDATE TASK
+  // ===================================================
+
   async function updateTask(
     id,
     patch
@@ -903,28 +1375,40 @@ export default function Home(){
         t=>t.id===id
       )
 
+
     setTasks(
-      tasks.map(
-        t=>
-          t.id===id
-            ? {
-                ...t,
-                ...patch
-              }
-            : t
-      )
+      prev=>
+        prev.map(
+          t=>
+            t.id===id
+              ? {
+                  ...t,
+                  ...patch
+                }
+              : t
+        )
     )
+
 
     if(
       taskDrawer?.id===id
     ){
-      setTaskDrawer({
-        ...taskDrawer,
-        ...patch
-      })
+
+      setTaskDrawer(
+        prev=>({
+          ...prev,
+          ...patch
+        })
+      )
     }
 
-    let e=null
+
+    let dbError=null
+
+
+    // -----------------------------------------------
+    // ASSIGNEE
+    // -----------------------------------------------
 
     if(
       Object.prototype
@@ -947,9 +1431,17 @@ export default function Home(){
           }
         )
 
-      e=r.error
 
-    }else if(
+      dbError=
+        r.error
+    }
+
+
+    // -----------------------------------------------
+    // STATUS
+    // -----------------------------------------------
+
+    else if(
       Object.prototype
         .hasOwnProperty
         .call(
@@ -962,15 +1454,25 @@ export default function Home(){
         await supabase.rpc(
           'update_task_status_safe',
           {
-            p_task_id:id,
+            p_task_id:
+              id,
+
             p_status:
               patch.status
           }
         )
 
-      e=r.error
 
-    }else{
+      dbError=
+        r.error
+    }
+
+
+    // -----------------------------------------------
+    // NORMAL UPDATE
+    // -----------------------------------------------
+
+    else{
 
       const r=
         await supabase
@@ -981,55 +1483,77 @@ export default function Home(){
             id
           )
 
-      e=r.error
+
+      dbError=
+        r.error
     }
 
-    if(e){
+
+    if(dbError){
 
       setTasks(
-        tasks.map(
-          t=>
-            t.id===id
-              ? old
-              : t
-        )
+        prev=>
+          prev.map(
+            t=>
+              t.id===id
+                ? old
+                : t
+          )
       )
+
 
       if(
         taskDrawer?.id===id
       ){
-        setTaskDrawer(old)
+
+        setTaskDrawer(
+          old
+        )
       }
+
 
       alert(
         'Không lưu được task: '+
-        e.message
+        dbError.message
       )
 
-    }else{
-
-      showToast(
-        'Đã lưu'
-      )
+      return
     }
+
+
+    showToast(
+      'Đã lưu'
+    )
   }
 
-  async function completeByCheckbox(t){
+
+  // ===================================================
+  // CHECKBOX
+  // ===================================================
+
+  async function completeByCheckbox(
+    t
+  ){
 
     if(
       t.status==='done'
     ){
-      return updateTask(
+
+      await updateTask(
         t.id,
         {
           status:'in_progress'
         }
       )
+
+      return
     }
+
 
     const requireReview=
       project
         ?.require_task_review!==false
+
 
     const next=
       requireReview
@@ -1041,6 +1565,7 @@ export default function Home(){
         ? 'review'
         : 'done'
 
+
     await updateTask(
       t.id,
       {
@@ -1048,6 +1573,11 @@ export default function Home(){
       }
     )
   }
+
+
+  // ===================================================
+  // TOAST
+  // ===================================================
 
   function showToast(msg){
 
@@ -1061,6 +1591,11 @@ export default function Home(){
     )
   }
 
+
+  // ===================================================
+  // FILTER TASKS
+  // ===================================================
+
   const filtered=
     useMemo(
       ()=>{
@@ -1069,9 +1604,11 @@ export default function Home(){
           ...tasks
         ]
 
+
         if(
           taskFilter==='my'
         ){
+
           rows=
             rows.filter(
               t=>
@@ -1080,9 +1617,11 @@ export default function Home(){
             )
         }
 
+
         if(
           taskFilter==='overdue'
         ){
+
           rows=
             rows.filter(
               t=>
@@ -1097,16 +1636,18 @@ export default function Home(){
             )
         }
 
+
         if(
           taskFilter==='review'
         ){
+
           rows=
             rows.filter(
               t=>
-                t.status===
-                'review'
+                t.status==='review'
             )
         }
+
 
         if(
           search.trim()
@@ -1116,6 +1657,7 @@ export default function Home(){
             search
               .toLowerCase()
 
+
           rows=
             rows.filter(
               t=>
@@ -1124,6 +1666,7 @@ export default function Home(){
                   .includes(q)
             )
         }
+
 
         return rows
 
@@ -1136,9 +1679,15 @@ export default function Home(){
       ]
     )
 
+
+  // ===================================================
+  // STATS
+  // ===================================================
+
   const stats=
     useMemo(
       ()=>({
+
         total:
           tasks.length,
 
@@ -1166,9 +1715,11 @@ export default function Home(){
               &&
               x.status!=='done'
           ).length
+
       }),
       [tasks]
     )
+
 
   const progress=
     stats.total
@@ -1179,11 +1730,17 @@ export default function Home(){
         )
       : 0
 
-  async function exportExcel(){
+
+  // ===================================================
+  // EXPORT
+  // ===================================================
+
+  function exportExcel(){
 
     const rows=
       filtered.map(
         t=>({
+
           Project:
             project?.name,
 
@@ -1198,16 +1755,16 @@ export default function Home(){
               ?.full_name||'',
 
           Status:
-            LABEL[t.status]||
+            LABEL[t.status]
+            ||
             t.status,
 
           Progress:
             t.progress,
 
           Priority:
-            PRIORITY[
-              t.priority
-            ]||
+            PRIORITY[t.priority]
+            ||
             t.priority,
 
           Deadline:
@@ -1224,15 +1781,18 @@ export default function Home(){
         })
       )
 
+
     const ws=
       XLSX.utils
         .json_to_sheet(
           rows
         )
 
+
     const wb=
       XLSX.utils
         .book_new()
+
 
     XLSX.utils
       .book_append_sheet(
@@ -1241,40 +1801,64 @@ export default function Home(){
         'Tasks'
       )
 
+
     XLSX.writeFile(
       wb,
       `${project?.code||'project'}-report.xlsx`
     )
   }
 
+
+  // ===================================================
+  // STATES
+  // ===================================================
+
   if(loading){
+
     return <div className="center">
+
       <div className="spinner"/>
+
       Đang tải FPTU Work...
+
     </div>
   }
+
 
   if(error){
+
     return <div className="center errorBox">
+
       {error}
+
     </div>
   }
 
+
   if(!session){
+
     return <Login
       onLogin={login}
     />
   }
 
+
   if(!membership){
+
     return <NoMembership
       profile={profile}
       onLogout={logout}
     />
   }
 
+
   const canCreateAnyProject=
     membership.status==='active'
+
+
+  // ===================================================
+  // UI
+  // ===================================================
 
   return <div className="appShell">
 
@@ -1287,6 +1871,7 @@ export default function Home(){
         </div>
 
         <div>
+
           <b>
             FPTU Work
           </b>
@@ -1294,9 +1879,11 @@ export default function Home(){
           <small>
             Project Workspace
           </small>
+
         </div>
 
       </div>
+
 
       <nav>
 
@@ -1313,6 +1900,7 @@ export default function Home(){
           ⌂ <span>Home</span>
         </button>
 
+
         <button
           className={
             view==='mytasks'
@@ -1326,21 +1914,26 @@ export default function Home(){
           ✓ <span>My Tasks</span>
         </button>
 
+
         <button
           className={
-            view==='projects'
-            ||
-            view==='project'
+            (
+              view==='projects'
+              ||
+              view==='project'
+            )
               ? 'active'
               : ''
           }
           onClick={()=>{
+
             setView('projects')
             setProject(null)
           }}
         >
           ▦ <span>Projects</span>
         </button>
+
 
         <button
           className={
@@ -1354,6 +1947,7 @@ export default function Home(){
         >
           ♟ <span>Teams</span>
         </button>
+
 
         {canManageWorkspace(
           membership
@@ -1372,6 +1966,7 @@ export default function Home(){
           </button>
         }
 
+
         <button
           className={
             view==='reports'
@@ -1387,6 +1982,7 @@ export default function Home(){
 
       </nav>
 
+
       <div className="sideProjects">
 
         <div className="sectionLabel">
@@ -1394,7 +1990,7 @@ export default function Home(){
         </div>
 
         {projects
-          .slice(0,7)
+          .slice(0,8)
           .map(
             p=>
               <button
@@ -1403,15 +1999,19 @@ export default function Home(){
                   openProject(p)
                 }
               >
+
                 <i/>
+
                 <span>
                   {p.name}
                 </span>
+
               </button>
           )
         }
 
       </div>
+
 
       <div className="userMini">
 
@@ -1430,13 +2030,17 @@ export default function Home(){
           </b>
 
           <small>
+
             {
               membership.role==='manager'
                 ? 'Trưởng phòng'
+
                 : membership.role==='team_lead'
                   ? 'Team Lead'
+
                   : 'Member/CTV'
             }
+
           </small>
 
         </div>
@@ -1450,6 +2054,7 @@ export default function Home(){
       </div>
 
     </aside>
+
 
     <main className="main">
 
@@ -1466,15 +2071,19 @@ export default function Home(){
           </b>
 
           <span className="crumb">
+
             {' / '}
+
             {
               view==='project'
                 ? project?.name
                 : view
             }
+
           </span>
 
         </div>
+
 
         <div className="topActions">
 
@@ -1487,6 +2096,7 @@ export default function Home(){
               )
             }
           >
+
             🔔
 
             {
@@ -1497,6 +2107,7 @@ export default function Home(){
                 .length>0
               &&
               <em>
+
                 {
                   notifications
                     .filter(
@@ -1504,10 +2115,12 @@ export default function Home(){
                     )
                     .length
                 }
+
               </em>
             }
 
           </button>
+
 
           <Avatar
             p={profile}
@@ -1516,6 +2129,7 @@ export default function Home(){
         </div>
 
       </header>
+
 
       {view==='projects' &&
         <Projects
@@ -1529,6 +2143,7 @@ export default function Home(){
           }
         />
       }
+
 
       {view==='project' &&
         project &&
@@ -1552,6 +2167,7 @@ export default function Home(){
 
           quickTitle={quickTitle}
           setQuickTitle={setQuickTitle}
+
           quickCreateTask={quickCreateTask}
 
           canTask={canTask}
@@ -1559,9 +2175,14 @@ export default function Home(){
           members={projectMembers}
           workspaceMembers={members}
 
-          openTask={setTaskDrawer}
+          openTask={(task)=>{
+
+            setFocusCommentId(null)
+            setTaskDrawer(task)
+          }}
 
           updateTask={updateTask}
+
           completeByCheckbox={
             completeByCheckbox
           }
@@ -1579,10 +2200,16 @@ export default function Home(){
           }
 
           onProjectMembersChanged={()=>
-            openProject(project)
+            openProject(
+              project,
+              {
+                tab:'overview'
+              }
+            )
           }
         />
       }
+
 
       {view==='home' &&
         <HomeDashboard
@@ -1591,6 +2218,7 @@ export default function Home(){
         />
       }
 
+
       {view==='mytasks' &&
         <MyTasks
           membership={membership}
@@ -1598,20 +2226,24 @@ export default function Home(){
         />
       }
 
+
       {view==='teams' &&
         <Teams
           teams={teams}
           projects={projects}
+
           canCreate={
             canManageWorkspace(
               membership
             )
           }
+
           onCreate={()=>
             setTeamCreateOpen(true)
           }
         />
       }
+
 
       {view==='members' &&
         canManageWorkspace(
@@ -1619,12 +2251,17 @@ export default function Home(){
         ) &&
         <Members
           members={members}
-          onOpen={setMemberDrawer}
+
+          onOpen={
+            setMemberDrawer
+          }
+
           onInvite={()=>
             setInviteOpen(true)
           }
         />
       }
+
 
       {view==='reports' &&
         <Reports
@@ -1635,36 +2272,47 @@ export default function Home(){
 
     </main>
 
+
     {taskDrawer &&
       <TaskDrawer
         task={taskDrawer}
+
         project={project}
+
         projectMembers={
           projectMembers
         }
-        membership={
-          membership
+
+        focusCommentId={
+          focusCommentId
         }
-        currentProjectMember={
-          currentProjectMember
+
+        onFocusDone={()=>
+          setFocusCommentId(null)
         }
-        onClose={()=>
+
+        onClose={()=>{
+
           setTaskDrawer(null)
-        }
+          setFocusCommentId(null)
+        }}
+
         onUpdate={
           updateTask
         }
       />
     }
 
+
     {memberDrawer &&
       <MemberDrawer
         item={memberDrawer}
         teams={teams}
-        members={members}
+
         onClose={()=>
           setMemberDrawer(null)
         }
+
         onSaved={()=>
           bootstrap(
             session.user
@@ -1673,27 +2321,33 @@ export default function Home(){
       />
     }
 
+
     {projectCreateOpen &&
       <ProjectCreateDrawer
         teams={teams}
         membership={membership}
+
         onClose={()=>
           setProjectCreateOpen(false)
         }
+
         onCreate={
           createProject
         }
       />
     }
 
+
     {inviteOpen &&
       <InviteDrawer
         teams={teams}
         projects={projects}
         membership={membership}
+
         onClose={()=>
           setInviteOpen(false)
         }
+
         onCreated={()=>
           showToast(
             'Đã tạo link mời'
@@ -1702,47 +2356,77 @@ export default function Home(){
       />
     }
 
+
     {notificationOpen &&
       <NotificationPanel
         notifications={
           notifications
         }
-        prefs={
-          notificationPrefs
-        }
+
         onClose={()=>
           setNotificationOpen(false)
         }
-        onChanged={()=>
-          bootstrap(
-            session.user
-          )
+
+        onOpenNotification={
+          openNotification
         }
+
+        onMarkAll={async()=>{
+
+          await supabase
+            .from('notifications')
+            .update({
+              is_read:true
+            })
+            .eq(
+              'user_id',
+              session.user.id
+            )
+            .eq(
+              'is_read',
+              false
+            )
+
+          await loadNotifications()
+        }}
       />
     }
+
 
     {teamCreateOpen &&
       <TeamCreateDrawer
         members={members}
+
         onClose={()=>
           setTeamCreateOpen(false)
         }
+
         onCreate={
           createTeam
         }
       />
     }
 
+
     {toast &&
       <div className="toast">
+
         ✓ {toast}
+
       </div>
     }
 
   </div>
 }
 
-function Login({onLogin}){
+
+// =====================================================
+// LOGIN
+// =====================================================
+
+function Login({
+  onLogin
+}){
 
   return <div className="loginPage">
 
@@ -1770,13 +2454,18 @@ function Login({onLogin}){
 
       <small>
         Bất kỳ tài khoản Google nào cũng có thể đăng nhập.
-        Quyền truy cập được kiểm soát bằng workspace/project membership.
+        Quyền truy cập được quản lý theo Workspace và Project.
       </small>
 
     </div>
 
   </div>
 }
+
+
+// =====================================================
+// NO MEMBERSHIP
+// =====================================================
 
 function NoMembership({
   profile,
@@ -1797,7 +2486,7 @@ function NoMembership({
       </h2>
 
       <p>
-        Bạn đã đăng nhập nhưng chưa thuộc workspace.
+        Bạn đã đăng nhập nhưng chưa thuộc Workspace.
         Hãy mở lại link mời.
       </p>
 
@@ -1813,21 +2502,30 @@ function NoMembership({
   </div>
 }
 
+
+// =====================================================
+// AVATAR
+// =====================================================
+
 function Avatar({
   p,
   big
 }){
 
   return p?.avatar_url
+
     ? <img
         className={
           big
             ? 'avatar big'
             : 'avatar'
         }
+
         src={p.avatar_url}
+
         alt=""
       />
+
     : <div
         className={
           big
@@ -1835,14 +2533,22 @@ function Avatar({
             : 'avatar fallback'
         }
       >
+
         {
           initials(
-            p?.full_name||
+            p?.full_name
+            ||
             p?.email
           )
         }
+
       </div>
 }
+
+
+// =====================================================
+// PROJECT LIST
+// =====================================================
 
 function Projects({
   projects,
@@ -1867,6 +2573,7 @@ function Projects({
 
       </div>
 
+
       {canCreate &&
         <button
           className="primary"
@@ -1878,24 +2585,30 @@ function Projects({
 
     </div>
 
+
     <div className="projectGrid">
 
       {projects.map(
         p=>
           <article
             className="projectCard"
+
             key={p.id}
+
             onClick={()=>
               onOpen(p)
             }
           >
 
             <div className="projectIcon">
+
               {
                 (p.code||'P')
                   .slice(0,2)
               }
+
             </div>
+
 
             <div className="projectMeta">
 
@@ -1904,56 +2617,68 @@ function Projects({
                   'pill '+p.status
                 }
               >
+
                 {
                   LABEL[p.status]
                   ||
                   p.status
                 }
+
               </span>
 
+
               <span>
-                {
-                  p.teams?.name||''
-                }
+                {p.teams?.name||''}
               </span>
 
             </div>
+
 
             <h3>
               {p.name}
             </h3>
 
+
             <p>
+
               {
                 p.description
                 ||
-                'Chưa có mô tả. Click vào Project để bổ sung.'
+                'Chưa có mô tả.'
               }
+
             </p>
+
 
             <div className="projectFoot">
 
               <span>
+
                 Lead: {
                   p.profiles
                     ?.full_name
                   ||
                   '—'
                 }
+
               </span>
 
+
               <span>
+
                 {
                   fmtDate(
                     p.due_at
                   )
                 }
+
               </span>
 
             </div>
 
           </article>
       )}
+
 
       {!projects.length &&
         <div className="empty">
@@ -1966,31 +2691,50 @@ function Projects({
   </section>
 }
 
+
+// =====================================================
+// PROJECT PAGE
+// =====================================================
+
 function ProjectPage({
   project,
   setProject,
+
   tab,
   setTab,
+
   stats,
   progress,
+
   tasks,
+
   search,
   setSearch,
+
   taskFilter,
   setTaskFilter,
+
   quickTitle,
   setQuickTitle,
+
   quickCreateTask,
   canTask,
+
   members,
   workspaceMembers,
+
   openTask,
+
   updateTask,
   completeByCheckbox,
+
   exportExcel,
+
   membership,
+
   currentProjectMember,
   currentUserIsProjectLead,
+
   onProjectMembersChanged
 }){
 
@@ -1998,6 +2742,7 @@ function ProjectPage({
     projectMemberOpen,
     setProjectMemberOpen
   ] = useState(false)
+
 
   const canManageProjectMembers=
     membership?.role==='manager'
@@ -2007,6 +2752,7 @@ function ProjectPage({
     !!currentProjectMember
       ?.can_manage_project_members
 
+
   const canSeeAllTaskFilter=
     membership?.role==='manager'
     ||
@@ -2014,14 +2760,21 @@ function ProjectPage({
     ||
     currentUserIsProjectLead
 
+
   async function saveDescription(){
 
-    const v=prompt(
-      'Mô tả Project',
-      project.description||''
-    )
+    const v=
+      prompt(
+        'Mô tả Project',
+        project.description||''
+      )
 
-    if(v===null) return
+
+    if(v===null){
+
+      return
+    }
+
 
     const {
       error
@@ -2035,13 +2788,17 @@ function ProjectPage({
         project.id
       )
 
+
     if(error){
+
       alert(
         'Không lưu được mô tả Project: '+
         error.message
       )
+
       return
     }
+
 
     setProject({
       ...project,
@@ -2049,57 +2806,71 @@ function ProjectPage({
     })
   }
 
+
   return <section className="page projectPage">
 
     <div className="projectHeader">
 
       <div className="projectIcon large">
+
         {
           (project.code||'P')
             .slice(0,2)
         }
+
       </div>
+
 
       <div className="grow">
 
         <div className="eyebrow">
+
           {project.code}
+
           {' · '}
+
           {project.teams?.name||''}
+
         </div>
+
 
         <h1>
           {project.name}
         </h1>
 
+
         <div
           className="desc"
-          onClick={
-            saveDescription
-          }
+          onClick={saveDescription}
         >
+
           {
             project.description
             ||
             '+ Thêm mô tả Project'
           }
+
         </div>
 
       </div>
+
 
       <span
         className={
           'pill '+project.status
         }
       >
+
         {
           LABEL[project.status]
           ||
           project.status
         }
+
       </span>
 
     </div>
+
 
     <div className="tabs">
 
@@ -2113,25 +2884,30 @@ function ProjectPage({
       ].map(
         x=>
           <button
+            key={x}
+
             className={
               tab===x
                 ? 'active'
                 : ''
             }
+
             onClick={()=>
               setTab(x)
             }
-            key={x}
           >
+
             {
               x[0].toUpperCase()
               +
               x.slice(1)
             }
+
           </button>
       )}
 
     </div>
+
 
     {tab==='overview' &&
       <>
@@ -2160,6 +2936,7 @@ function ProjectPage({
           />
 
         </div>
+
 
         <div className="overviewGrid">
 
@@ -2217,6 +2994,7 @@ function ProjectPage({
 
           </div>
 
+
           <div className="panel">
 
             <div
@@ -2229,13 +3007,19 @@ function ProjectPage({
               }}
             >
 
-              <h3 style={{margin:0}}>
+              <h3
+                style={{
+                  margin:0
+                }}
+              >
                 Members
               </h3>
+
 
               {canManageProjectMembers &&
                 <button
                   className="primary"
+
                   onClick={()=>
                     setProjectMemberOpen(
                       true
@@ -2247,6 +3031,7 @@ function ProjectPage({
               }
 
             </div>
+
 
             {members.map(
               m=>
@@ -2260,21 +3045,24 @@ function ProjectPage({
                   />
 
                   <span>
+
                     {
-                      m.profiles?.full_name
+                      m.profiles
+                        ?.full_name
                       ||
-                      m.profiles?.email
+                      m.profiles
+                        ?.email
                     }
+
                   </span>
 
                   <small>
-                    {
-                      m.role_in_project
-                    }
+                    {m.role_in_project}
                   </small>
 
                 </div>
             )}
+
 
             {!members.length &&
               <div className="empty">
@@ -2282,20 +3070,25 @@ function ProjectPage({
               </div>
             }
 
+
             {projectMemberOpen &&
               <ProjectMemberDrawer
                 project={project}
+
                 projectMembers={
                   members
                 }
+
                 workspaceMembers={
                   workspaceMembers||[]
                 }
+
                 onClose={()=>
                   setProjectMemberOpen(
                     false
                   )
                 }
+
                 onSaved={async()=>{
 
                   setProjectMemberOpen(
@@ -2314,6 +3107,7 @@ function ProjectPage({
       </>
     }
 
+
     {tab==='list' &&
       <TaskList
         tasks={tasks}
@@ -2322,21 +3116,14 @@ function ProjectPage({
         setSearch={setSearch}
 
         taskFilter={taskFilter}
-        setTaskFilter={
-          setTaskFilter
-        }
+        setTaskFilter={setTaskFilter}
 
         canSeeAllTaskFilter={
           canSeeAllTaskFilter
         }
 
-        quickTitle={
-          quickTitle
-        }
-
-        setQuickTitle={
-          setQuickTitle
-        }
+        quickTitle={quickTitle}
+        setQuickTitle={setQuickTitle}
 
         quickCreateTask={
           quickCreateTask
@@ -2350,13 +3137,12 @@ function ProjectPage({
           completeByCheckbox
         }
 
-        updateTask={
-          updateTask
-        }
+        updateTask={updateTask}
 
         members={members}
       />
     }
+
 
     {tab==='kanban' &&
       <Kanban
@@ -2366,15 +3152,18 @@ function ProjectPage({
       />
     }
 
+
     {tab==='files' &&
       <ProjectFiles/>
     }
+
 
     {tab==='activity' &&
       <ProjectActivity
         project={project}
       />
     }
+
 
     {tab==='report' &&
       <div className="panel reportPanel">
@@ -2389,9 +3178,7 @@ function ProjectPage({
 
         <button
           className="primary"
-          onClick={
-            exportExcel
-          }
+          onClick={exportExcel}
         >
           Export Excel
         </button>
@@ -2401,6 +3188,11 @@ function ProjectPage({
 
   </section>
 }
+
+
+// =====================================================
+// STAT
+// =====================================================
 
 function Stat({
   label,
@@ -2430,6 +3222,11 @@ function Stat({
   </div>
 }
 
+
+// =====================================================
+// INFO
+// =====================================================
+
 function Info({
   label,
   value
@@ -2448,20 +3245,35 @@ function Info({
   </div>
 }
 
+
+// =====================================================
+// TASK LIST
+// =====================================================
+
 function TaskList({
   tasks,
+
   search,
   setSearch,
+
   taskFilter,
   setTaskFilter,
+
   canSeeAllTaskFilter,
+
   quickTitle,
   setQuickTitle,
+
   quickCreateTask,
+
   canTask,
+
   openTask,
+
   completeByCheckbox,
+
   updateTask,
+
   members
 }){
 
@@ -2471,13 +3283,16 @@ function TaskList({
 
       <input
         placeholder="Search task..."
+
         value={search}
+
         onChange={e=>
           setSearch(
             e.target.value
           )
         }
       />
+
 
       <div className="chips">
 
@@ -2487,6 +3302,7 @@ function TaskList({
               ? 'active'
               : ''
           }
+
           onClick={()=>
             setTaskFilter('my')
           }
@@ -2494,12 +3310,14 @@ function TaskList({
           My Tasks
         </button>
 
+
         <button
           className={
             taskFilter==='overdue'
               ? 'active'
               : ''
           }
+
           onClick={()=>
             setTaskFilter(
               'overdue'
@@ -2509,12 +3327,14 @@ function TaskList({
           Overdue
         </button>
 
+
         <button
           className={
             taskFilter==='review'
               ? 'active'
               : ''
           }
+
           onClick={()=>
             setTaskFilter(
               'review'
@@ -2524,6 +3344,7 @@ function TaskList({
           Review
         </button>
 
+
         {canSeeAllTaskFilter &&
           <button
             className={
@@ -2531,6 +3352,7 @@ function TaskList({
                 ? 'active'
                 : ''
             }
+
             onClick={()=>
               setTaskFilter(
                 'all'
@@ -2545,31 +3367,18 @@ function TaskList({
 
     </div>
 
+
     <div className="taskHeader">
 
       <span></span>
-
-      <span>
-        Task
-      </span>
-
-      <span>
-        Assignee
-      </span>
-
-      <span>
-        Deadline
-      </span>
-
-      <span>
-        Priority
-      </span>
-
-      <span>
-        Status
-      </span>
+      <span>Task</span>
+      <span>Assignee</span>
+      <span>Deadline</span>
+      <span>Priority</span>
+      <span>Status</span>
 
     </div>
+
 
     {tasks.map(
       t=>
@@ -2587,21 +3396,26 @@ function TaskList({
                   : ''
               )
             }
+
             onClick={()=>
               completeByCheckbox(
                 t
               )
             }
           >
+
             {
               t.status==='done'
                 ? '✓'
                 : ''
             }
+
           </button>
+
 
           <button
             className="taskTitle"
+
             onClick={()=>
               openTask(t)
             }
@@ -2617,10 +3431,12 @@ function TaskList({
 
           </button>
 
+
           <select
             value={
               t.assignee_id||''
             }
+
             onChange={e=>
               updateTask(
                 t.id,
@@ -2638,24 +3454,31 @@ function TaskList({
               —
             </option>
 
+
             {members.map(
               m=>
                 <option
                   key={m.user_id}
                   value={m.user_id}
                 >
+
                   {
-                    m.profiles?.full_name
+                    m.profiles
+                      ?.full_name
                     ||
-                    m.profiles?.email
+                    m.profiles
+                      ?.email
                   }
+
                 </option>
             )}
 
           </select>
 
+
           <input
             type="date"
+
             value={
               t.due_at
                 ? t.due_at.slice(
@@ -2664,6 +3487,7 @@ function TaskList({
                   )
                 : ''
             }
+
             onChange={e=>
               updateTask(
                 t.id,
@@ -2680,10 +3504,12 @@ function TaskList({
             }
           />
 
+
           <select
             value={
               t.priority
             }
+
             onChange={e=>
               updateTask(
                 t.id,
@@ -2703,18 +3529,18 @@ function TaskList({
                   key={x}
                   value={x}
                 >
-                  {
-                    PRIORITY[x]
-                  }
+                  {PRIORITY[x]}
                 </option>
             )}
 
           </select>
 
+
           <select
             value={
               t.status
             }
+
             onChange={e=>
               updateTask(
                 t.id,
@@ -2741,11 +3567,15 @@ function TaskList({
         </div>
     )}
 
+
     {!tasks.length &&
       <div className="empty">
+
         Không có task phù hợp với bộ lọc hiện tại.
+
       </div>
     }
+
 
     {canTask &&
       <div className="quickAdd">
@@ -2756,14 +3586,15 @@ function TaskList({
 
         <input
           placeholder="Thêm task và nhấn Enter..."
-          value={
-            quickTitle
-          }
+
+          value={quickTitle}
+
           onChange={e=>
             setQuickTitle(
               e.target.value
             )
           }
+
           onKeyDown={e=>
             e.key==='Enter'
             &&
@@ -2777,6 +3608,11 @@ function TaskList({
   </div>
 }
 
+
+// =====================================================
+// KANBAN
+// =====================================================
+
 function Kanban({
   tasks,
   openTask,
@@ -2786,13 +3622,16 @@ function Kanban({
   return <div className="kanban">
 
     {STATUS.map(
-      s=>
+      status=>
         <div
           className="kanbanCol"
-          key={s}
+
+          key={status}
+
           onDragOver={e=>
             e.preventDefault()
           }
+
           onDrop={e=>{
 
             const id=
@@ -2804,7 +3643,7 @@ function Kanban({
               updateTask(
                 id,
                 {
-                  status:s
+                  status
                 }
               )
             }
@@ -2814,29 +3653,37 @@ function Kanban({
           <div className="kanbanHead">
 
             <b>
-              {LABEL[s]}
+              {LABEL[status]}
             </b>
 
             <span>
+
               {
                 tasks.filter(
                   t=>
-                    t.status===s
+                    t.status===status
                 ).length
               }
+
             </span>
 
           </div>
 
+
           {tasks
             .filter(
               t=>
-                t.status===s
+                t.status===status
             )
             .map(
               t=>
                 <div
                   draggable
+
+                  key={t.id}
+
+                  className="kanbanCard"
+
                   onDragStart={e=>
                     e.dataTransfer
                       .setData(
@@ -2844,8 +3691,7 @@ function Kanban({
                         t.id
                       )
                   }
-                  className="kanbanCard"
-                  key={t.id}
+
                   onDoubleClick={()=>
                     openTask(t)
                   }
@@ -2858,6 +3704,7 @@ function Kanban({
                   <b>
                     {t.title}
                   </b>
+
 
                   <div>
 
@@ -2874,12 +3721,9 @@ function Kanban({
                       }
                     </span>
 
+
                     <span>
-                      {
-                        fmtDate(
-                          t.due_at
-                        )
-                      }
+                      {fmtDate(t.due_at)}
                     </span>
 
                   </div>
@@ -2894,23 +3738,43 @@ function Kanban({
   </div>
 }
 
+
+// =====================================================
+// TASK DRAWER
+// =====================================================
+
 function TaskDrawer({
   task,
   project,
   projectMembers,
+
+  focusCommentId,
+  onFocusDone,
+
   onClose,
   onUpdate
 }){
 
   const [comments,setComments]=useState([])
   const [activity,setActivity]=useState([])
+
   const [comment,setComment]=useState('')
+
+  const [mentionedUsers,setMentionedUsers]=useState([])
+
+  const [mentionOpen,setMentionOpen]=useState(false)
+  const [mentionQuery,setMentionQuery]=useState('')
+
+  const [highlightComment,setHighlightComment]=useState(null)
+
+  const textareaRef=useRef(null)
+
 
   useEffect(()=>{
 
     load()
 
-    const ch=
+    const channel=
       supabase
         .channel(
           'task-'+task.id
@@ -2924,21 +3788,93 @@ function TaskDrawer({
             filter:
               `task_id=eq.${task.id}`
           },
-          load
+          ()=>{
+            load()
+          }
         )
         .subscribe()
 
+
     return ()=>{
-      supabase.removeChannel(ch)
+
+      supabase.removeChannel(
+        channel
+      )
     }
 
-  },[task.id])
+  },[
+    task.id
+  ])
+
+
+  useEffect(()=>{
+
+    if(
+      !focusCommentId
+      ||
+      !comments.length
+    ){
+      return
+    }
+
+
+    const timer=
+      setTimeout(
+        ()=>{
+
+          const el=
+            document.getElementById(
+              `comment-${focusCommentId}`
+            )
+
+
+          if(el){
+
+            el.scrollIntoView({
+              behavior:'smooth',
+              block:'center'
+            })
+
+
+            setHighlightComment(
+              focusCommentId
+            )
+
+
+            setTimeout(
+              ()=>{
+                setHighlightComment(
+                  null
+                )
+              },
+              3500
+            )
+          }
+
+
+          onFocusDone?.()
+
+        },
+        350
+      )
+
+
+    return ()=>{
+
+      clearTimeout(timer)
+    }
+
+  },[
+    focusCommentId,
+    comments.length
+  ])
+
 
   async function load(){
 
     const [
-      {data:c},
-      {data:a}
+      commentRes,
+      activityRes
     ] = await Promise.all([
 
       supabase
@@ -2979,59 +3915,236 @@ function TaskDrawer({
 
     ])
 
-    setComments(c||[])
-    setActivity(a||[])
+
+    setComments(
+      commentRes.data||[]
+    )
+
+    setActivity(
+      activityRes.data||[]
+    )
   }
+
+
+  // ===================================================
+  // MENTION INPUT
+  // ===================================================
+
+  function handleCommentChange(e){
+
+    const value=
+      e.target.value
+
+
+    setComment(value)
+
+
+    const cursor=
+      e.target.selectionStart
+
+
+    const before=
+      value.slice(
+        0,
+        cursor
+      )
+
+
+    const match=
+      before.match(
+        /@([^@\n]*)$/
+      )
+
+
+    if(match){
+
+      setMentionQuery(
+        match[1].trim()
+      )
+
+      setMentionOpen(true)
+
+    }else{
+
+      setMentionQuery('')
+      setMentionOpen(false)
+    }
+  }
+
+
+  const mentionCandidates=
+    projectMembers
+      .filter(
+        m=>{
+
+          const text=
+            `${m.profiles?.full_name||''} ${m.profiles?.email||''}`
+              .toLowerCase()
+
+
+          return text.includes(
+            mentionQuery
+              .toLowerCase()
+          )
+        }
+      )
+      .slice(0,8)
+
+
+  function chooseMention(member){
+
+    const textarea=
+      textareaRef.current
+
+
+    const cursor=
+      textarea
+        ?.selectionStart
+      ??
+      comment.length
+
+
+    const before=
+      comment.slice(
+        0,
+        cursor
+      )
+
+
+    const after=
+      comment.slice(
+        cursor
+      )
+
+
+    const at=
+      before.lastIndexOf('@')
+
+
+    if(at<0){
+
+      return
+    }
+
+
+    const name=
+      member.profiles
+        ?.full_name
+      ||
+      member.profiles
+        ?.email
+      ||
+      'Member'
+
+
+    const next=
+      before.slice(
+        0,
+        at
+      )
+      +
+      '@'+name+' '
+      +
+      after
+
+
+    setComment(next)
+
+
+    setMentionedUsers(
+      prev=>
+        prev.some(
+          x=>
+            x.user_id===
+            member.user_id
+        )
+          ? prev
+          : [
+              ...prev,
+              member
+            ]
+    )
+
+
+    setMentionOpen(false)
+    setMentionQuery('')
+
+
+    setTimeout(
+      ()=>{
+
+        textarea?.focus()
+
+      },
+      50
+    )
+  }
+
+
+  // ===================================================
+  // ADD COMMENT WITH MENTION
+  // ===================================================
 
   async function addComment(){
 
-    if(
-      !comment.trim()
-    ){
+    const content=
+      comment.trim()
+
+
+    if(!content){
+
       return
     }
 
-    const {
-      data:{user}
-    } = await supabase
-      .auth
-      .getUser()
 
-    if(!user){
-      return
-    }
+    const ids=
+      mentionedUsers
+        .map(
+          x=>x.user_id
+        )
+
 
     const {
       error
-    } = await supabase
-      .from(
-        'task_comments'
-      )
-      .insert({
-        task_id:
+    } = await supabase.rpc(
+      'add_task_comment_with_mentions',
+      {
+        p_task_id:
           task.id,
 
-        user_id:
-          user.id,
+        p_content:
+          content,
 
-        content:
-          comment.trim()
-      })
+        p_mentioned_user_ids:
+          ids
+      }
+    )
+
 
     if(error){
+
       alert(
         'Không gửi được bình luận: '+
         error.message
       )
+
       return
     }
 
+
     setComment('')
-    load()
+    setMentionedUsers([])
+    setMentionOpen(false)
+    setMentionQuery('')
+
+
+    await load()
   }
+
 
   return <div
     className="drawerWrap"
+
     onMouseDown={e=>
       e.target===
         e.currentTarget
@@ -3050,11 +4163,12 @@ function TaskDrawer({
             {task.code}
           </small>
 
+
           <input
             className="drawerTitle"
-            value={
-              task.title
-            }
+
+            value={task.title}
+
             onChange={e=>
               onUpdate(
                 task.id,
@@ -3068,6 +4182,7 @@ function TaskDrawer({
 
         </div>
 
+
         <button
           onClick={onClose}
         >
@@ -3076,6 +4191,7 @@ function TaskDrawer({
 
       </div>
 
+
       <div className="drawerBody">
 
         <div className="fieldGrid">
@@ -3083,9 +4199,8 @@ function TaskDrawer({
           <Field label="Status">
 
             <select
-              value={
-                task.status
-              }
+              value={task.status}
+
               onChange={e=>
                 onUpdate(
                   task.id,
@@ -3111,12 +4226,14 @@ function TaskDrawer({
 
           </Field>
 
+
           <Field label="Assignee">
 
             <select
               value={
                 task.assignee_id||''
               }
+
               onChange={e=>
                 onUpdate(
                   task.id,
@@ -3134,17 +4251,22 @@ function TaskDrawer({
                 —
               </option>
 
+
               {projectMembers.map(
                 m=>
                   <option
                     key={m.user_id}
                     value={m.user_id}
                   >
+
                     {
-                      m.profiles?.full_name
+                      m.profiles
+                        ?.full_name
                       ||
-                      m.profiles?.email
+                      m.profiles
+                        ?.email
                     }
+
                   </option>
               )}
 
@@ -3152,10 +4274,12 @@ function TaskDrawer({
 
           </Field>
 
+
           <Field label="Deadline">
 
             <input
               type="date"
+
               value={
                 task.due_at
                   ? task.due_at.slice(
@@ -3164,6 +4288,7 @@ function TaskDrawer({
                     )
                   : ''
               }
+
               onChange={e=>
                 onUpdate(
                   task.id,
@@ -3182,15 +4307,18 @@ function TaskDrawer({
 
           </Field>
 
+
           <Field label="Progress">
 
             <input
               type="number"
               min="0"
               max="100"
+
               value={
                 task.progress||0
               }
+
               onChange={e=>
                 onUpdate(
                   task.id,
@@ -3206,6 +4334,7 @@ function TaskDrawer({
 
         </div>
 
+
         <section>
 
           <h3>
@@ -3214,10 +4343,13 @@ function TaskDrawer({
 
           <textarea
             rows="7"
+
             placeholder="+ Thêm mô tả task..."
+
             value={
               task.description||''
             }
+
             onChange={e=>
               onUpdate(
                 task.id,
@@ -3231,6 +4363,7 @@ function TaskDrawer({
 
         </section>
 
+
         <section>
 
           <h3>
@@ -3239,10 +4372,13 @@ function TaskDrawer({
 
           <input
             className="fullInput"
+
             placeholder="https://..."
+
             value={
               task.delivery_url||''
             }
+
             onChange={e=>
               onUpdate(
                 task.id,
@@ -3256,48 +4392,82 @@ function TaskDrawer({
 
         </section>
 
+
         <section>
 
           <h3>
             Comments
           </h3>
 
+
           <div className="comments">
 
             {comments.map(
               c=>
                 <div
+                  id={
+                    `comment-${c.id}`
+                  }
+
                   className="comment"
+
                   key={c.id}
+
+                  style={
+                    highlightComment===c.id
+                      ? {
+                          background:'#fff3e8',
+                          border:'1px solid #f28c38',
+                          borderRadius:10,
+                          padding:10,
+                          transition:'all .25s ease'
+                        }
+                      : {
+                          transition:'all .25s ease'
+                        }
+                  }
                 >
 
                   <Avatar
                     p={c.profiles}
                   />
 
+
                   <div>
 
                     <div className="commentMeta">
 
                       <b>
+
                         {
-                          c.profiles?.full_name
+                          c.profiles
+                            ?.full_name
                           ||
-                          c.profiles?.email
+                          c.profiles
+                            ?.email
                         }
+
                       </b>
 
+
                       <span>
+
                         {
                           fmtDateTime(
                             c.created_at
                           )
                         }
+
                       </span>
 
                     </div>
 
-                    <p>
+
+                    <p
+                      style={{
+                        whiteSpace:'pre-wrap'
+                      }}
+                    >
                       {c.content}
                     </p>
 
@@ -3308,36 +4478,202 @@ function TaskDrawer({
 
           </div>
 
-          <div className="commentBox">
 
-            <textarea
-              placeholder="Viết bình luận... @mention"
-              value={comment}
-              onChange={e=>
-                setComment(
-                  e.target.value
-                )
-              }
-            />
+          <div
+            style={{
+              position:'relative'
+            }}
+          >
 
-            <button
-              className="primary"
-              onClick={
-                addComment
-              }
-            >
-              Gửi
-            </button>
+            {mentionOpen &&
+              <div
+                style={{
+                  position:'absolute',
+                  left:0,
+                  right:70,
+                  bottom:'calc(100% + 8px)',
+                  background:'#fff',
+                  border:'1px solid #e5e7eb',
+                  borderRadius:12,
+                  boxShadow:'0 10px 30px rgba(0,0,0,.12)',
+                  zIndex:100,
+                  maxHeight:280,
+                  overflowY:'auto'
+                }}
+              >
+
+                {mentionCandidates.length
+                  ? mentionCandidates.map(
+                      m=>
+                        <button
+                          key={m.user_id}
+
+                          type="button"
+
+                          onMouseDown={e=>{
+                            e.preventDefault()
+
+                            chooseMention(m)
+                          }}
+
+                          style={{
+                            display:'flex',
+                            width:'100%',
+                            border:0,
+                            background:'transparent',
+                            padding:'10px 12px',
+                            gap:10,
+                            alignItems:'center',
+                            textAlign:'left',
+                            cursor:'pointer'
+                          }}
+                        >
+
+                          <Avatar
+                            p={m.profiles}
+                          />
+
+                          <span
+                            style={{
+                              display:'flex',
+                              flexDirection:'column'
+                            }}
+                          >
+
+                            <b>
+
+                              {
+                                m.profiles
+                                  ?.full_name
+                                ||
+                                m.profiles
+                                  ?.email
+                              }
+
+                            </b>
+
+                            <small>
+
+                              {
+                                m.role_in_project==='lead'
+                                  ? 'Project Lead'
+                                  : 'Project Member'
+                              }
+
+                            </small>
+
+                          </span>
+
+                        </button>
+                    )
+
+                  : <div
+                      style={{
+                        padding:12,
+                        color:'#777'
+                      }}
+                    >
+                      Không tìm thấy member.
+                    </div>
+                }
+
+              </div>
+            }
+
+
+            <div className="commentBox">
+
+              <textarea
+                ref={textareaRef}
+
+                placeholder="Viết bình luận... Gõ @ để tag member"
+
+                value={comment}
+
+                onChange={
+                  handleCommentChange
+                }
+
+                onKeyDown={e=>{
+
+                  if(
+                    (
+                      e.ctrlKey
+                      ||
+                      e.metaKey
+                    )
+                    &&
+                    e.key==='Enter'
+                  ){
+
+                    addComment()
+                  }
+                }}
+              />
+
+
+              <button
+                className="primary"
+
+                onClick={
+                  addComment
+                }
+              >
+                Gửi
+              </button>
+
+            </div>
 
           </div>
 
+
+          {!!mentionedUsers.length &&
+            <div
+              style={{
+                marginTop:8,
+                display:'flex',
+                flexWrap:'wrap',
+                gap:6
+              }}
+            >
+
+              {mentionedUsers.map(
+                m=>
+                  <span
+                    key={m.user_id}
+
+                    style={{
+                      background:'#fff3e8',
+                      padding:'4px 8px',
+                      borderRadius:999,
+                      fontSize:12
+                    }}
+                  >
+
+                    @
+                    {
+                      m.profiles
+                        ?.full_name
+                      ||
+                      m.profiles
+                        ?.email
+                    }
+
+                  </span>
+              )}
+
+            </div>
+          }
+
         </section>
+
 
         <section>
 
           <h3>
             Activity
           </h3>
+
 
           {activity.map(
             a=>
@@ -3350,32 +4686,39 @@ function TaskDrawer({
                   •
                 </span>
 
+
                 <div>
 
                   <b>
+
                     {
-                      a.profiles?.full_name
+                      a.profiles
+                        ?.full_name
                       ||
                       'System'
                     }
+
                   </b>
 
                   {' '}
 
                   {
                     a.action
-                      .replaceAll(
+                      ?.replaceAll(
                         '_',
                         ' '
                       )
                   }
 
+
                   <small>
+
                     {
                       fmtDateTime(
                         a.created_at
                       )
                     }
+
                   </small>
 
                 </div>
@@ -3391,6 +4734,11 @@ function TaskDrawer({
 
   </div>
 }
+
+
+// =====================================================
+// FIELD
+// =====================================================
 
 function Field({
   label,
@@ -3408,6 +4756,11 @@ function Field({
   </label>
 }
 
+
+// =====================================================
+// HOME
+// =====================================================
+
 function HomeDashboard({
   projects,
   members
@@ -3424,20 +4777,19 @@ function HomeDashboard({
         </h1>
 
         <p>
-          Tổng quan workspace.
+          Tổng quan Workspace.
         </p>
 
       </div>
 
     </div>
 
+
     <div className="statGrid">
 
       <Stat
         label="Projects"
-        value={
-          projects.length
-        }
+        value={projects.length}
       />
 
       <Stat
@@ -3452,9 +4804,7 @@ function HomeDashboard({
 
       <Stat
         label="Members"
-        value={
-          members.length
-        }
+        value={members.length}
       />
 
       <Stat
@@ -3472,6 +4822,11 @@ function HomeDashboard({
   </section>
 }
 
+
+// =====================================================
+// MY TASKS
+// =====================================================
+
 function MyTasks({
   membership,
   onOpenProject
@@ -3479,6 +4834,7 @@ function MyTasks({
 
   const [rows,setRows]=useState([])
   const [loading,setLoading]=useState(true)
+
 
   useEffect(()=>{
 
@@ -3488,7 +4844,9 @@ function MyTasks({
       return
     }
 
+
     setLoading(true)
+
 
     supabase
       .from('tasks')
@@ -3513,12 +4871,18 @@ function MyTasks({
       .then(
         ({data})=>{
 
-          setRows(data||[])
+          setRows(
+            data||[]
+          )
+
           setLoading(false)
         }
       )
 
-  },[membership?.user_id])
+  },[
+    membership?.user_id
+  ])
+
 
   return <section className="page">
 
@@ -3531,31 +4895,39 @@ function MyTasks({
         </h1>
 
         <p>
-          Task của bạn từ tất cả Project.
+          Task được giao cho bạn từ tất cả Project.
         </p>
 
       </div>
 
     </div>
 
+
     <div className="panel taskPanel">
 
       {loading
+
         ? <div className="empty">
             Đang tải...
           </div>
 
         : rows.length
+
           ? rows.map(
               t=>
                 <button
                   className="memberRow"
+
                   key={t.id}
+
                   onClick={()=>
                     t.project
                     &&
                     onOpenProject?.(
-                      t.project
+                      t.project,
+                      {
+                        tab:'list'
+                      }
                     )
                   }
                 >
@@ -3566,12 +4938,15 @@ function MyTasks({
                       t.status
                     }
                   >
+
                     {
                       LABEL[t.status]
                       ||
                       t.status
                     }
+
                   </span>
+
 
                   <span>
 
@@ -3580,23 +4955,24 @@ function MyTasks({
                     </b>
 
                     <small>
+
                       {
                         t.project?.name
                         ||
                         'Personal task'
                       }
+
                       {' · '}
+
                       {t.code}
+
                     </small>
 
                   </span>
 
+
                   <span>
-                    {
-                      fmtDate(
-                        t.due_at
-                      )
-                    }
+                    {fmtDate(t.due_at)}
                   </span>
 
                 </button>
@@ -3611,6 +4987,11 @@ function MyTasks({
 
   </section>
 }
+
+
+// =====================================================
+// TEAMS
+// =====================================================
 
 function Teams({
   teams,
@@ -3630,10 +5011,11 @@ function Teams({
         </h1>
 
         <p>
-          Team, Team Lead, Project và workload trong workspace.
+          Team, Team Lead và Project trong Workspace.
         </p>
 
       </div>
+
 
       {canCreate &&
         <button
@@ -3646,6 +5028,7 @@ function Teams({
 
     </div>
 
+
     <div className="projectGrid">
 
       {teams.map(
@@ -3656,44 +5039,55 @@ function Teams({
           >
 
             <div className="projectIcon">
+
               {
                 (t.code||'T')
                   .slice(0,2)
               }
+
             </div>
+
 
             <h3>
               {t.name}
             </h3>
 
+
             <p>
+
               {
                 t.description
                 ||
                 'Chưa có mô tả Team.'
               }
+
             </p>
+
 
             <div className="projectFoot">
 
               <span>
+
                 Lead: {
                   t.lead?.full_name
                   ||
                   'Chưa gán'
                 }
+
               </span>
 
+
               <span>
+
                 {
                   projects.filter(
                     p=>
-                      p.team_id===
-                        t.id
+                      p.team_id===t.id
                   ).length
                 }
-                {' '}
-                Projects
+
+                {' '}Projects
+
               </span>
 
             </div>
@@ -3705,6 +5099,11 @@ function Teams({
 
   </section>
 }
+
+
+// =====================================================
+// MEMBERS
+// =====================================================
 
 function Members({
   members,
@@ -3723,10 +5122,11 @@ function Members({
         </h1>
 
         <p>
-          Trưởng phòng quản lý role, team, quyền mở rộng và link mời.
+          Trưởng phòng quản lý role, team và quyền Workspace.
         </p>
 
       </div>
+
 
       <button
         className="primary"
@@ -3737,13 +5137,16 @@ function Members({
 
     </div>
 
+
     <div className="panel memberTable">
 
       {members.map(
         m=>
           <button
             className="memberRow"
+
             key={m.id}
+
             onClick={()=>
               onOpen(m)
             }
@@ -3753,31 +5156,44 @@ function Members({
               p={m.profiles}
             />
 
+
             <span>
 
               <b>
+
                 {
-                  m.profiles?.full_name
+                  m.profiles
+                    ?.full_name
                   ||
-                  m.profiles?.email
+                  m.profiles
+                    ?.email
                 }
+
               </b>
 
+
               <small>
+
                 {
-                  m.profiles?.email
+                  m.profiles
+                    ?.email
                 }
+
               </small>
 
             </span>
 
+
             <span>
+
               {
                 m.teams?.name
                 ||
                 '—'
               }
+
             </span>
+
 
             <span className="rolePill">
               {m.role}
@@ -3790,6 +5206,11 @@ function Members({
 
   </section>
 }
+
+
+// =====================================================
+// REPORTS
+// =====================================================
 
 function Reports({
   projects,
@@ -3807,33 +5228,35 @@ function Reports({
         </h1>
 
         <p>
-          Report theo Project, Team, Member và deadline.
+          Báo cáo theo Project, Team và Member.
         </p>
 
       </div>
 
     </div>
 
+
     <div className="statGrid">
 
       <Stat
         label="Projects"
-        value={
-          projects.length
-        }
+        value={projects.length}
       />
 
       <Stat
         label="Members"
-        value={
-          members.length
-        }
+        value={members.length}
       />
 
     </div>
 
   </section>
 }
+
+
+// =====================================================
+// MEMBER PERMISSION DRAWER
+// =====================================================
 
 function MemberDrawer({
   item,
@@ -3842,38 +5265,51 @@ function MemberDrawer({
   onSaved
 }){
 
-  const [role,setRole]=useState(item.role)
+  const [role,setRole]=
+    useState(
+      item.role
+    )
 
-  const [teamId,setTeamId]=useState(
-    item.team_id||''
-  )
 
-  const [perms,setPerms]=useState({
+  const [teamId,setTeamId]=
+    useState(
+      item.team_id||''
+    )
 
-    can_create_project:
-      !!item.can_create_project,
 
-    can_review_task:
-      !!item.can_review_task,
+  const [perms,setPerms]=
+    useState({
 
-    can_assign_outside_project:
-      !!item.can_assign_outside_project,
+      can_create_project:
+        !!item.can_create_project,
 
-    can_view_team_report:
-      !!item.can_view_team_report,
+      can_review_task:
+        !!item.can_review_task,
 
-    can_archive_project:
-      !!item.can_archive_project
+      can_assign_outside_project:
+        !!item.can_assign_outside_project,
 
-  })
+      can_view_team_report:
+        !!item.can_view_team_report,
 
-  const [saving,setSaving]=useState(false)
-  const [saved,setSaved]=useState(false)
+      can_archive_project:
+        !!item.can_archive_project
+    })
+
+
+  const [saving,setSaving]=
+    useState(false)
+
+
+  const [saved,setSaved]=
+    useState(false)
+
 
   async function save(){
 
     setSaving(true)
     setSaved(false)
+
 
     const {
       data,
@@ -3907,7 +5343,9 @@ function MemberDrawer({
       }
     )
 
+
     setSaving(false)
+
 
     if(error){
 
@@ -3919,11 +5357,14 @@ function MemberDrawer({
       return
     }
 
+
     setSaved(true)
+
 
     await onSaved?.(
       data
     )
+
 
     setTimeout(
       ()=>{
@@ -3932,6 +5373,7 @@ function MemberDrawer({
       1800
     )
   }
+
 
   return <div className="drawerWrap">
 
@@ -3951,6 +5393,7 @@ function MemberDrawer({
 
       </div>
 
+
       <div className="drawerBody">
 
         <div className="memberHero">
@@ -3961,25 +5404,31 @@ function MemberDrawer({
           />
 
           <h3>
+
             {
               item.profiles
                 ?.full_name
             }
+
           </h3>
 
           <p>
+
             {
               item.profiles
                 ?.email
             }
+
           </p>
 
         </div>
+
 
         <Field label="Role">
 
           <select
             value={role}
+
             onChange={e=>{
 
               setRole(
@@ -4006,10 +5455,12 @@ function MemberDrawer({
 
         </Field>
 
+
         <Field label="Team">
 
           <select
             value={teamId}
+
             onChange={e=>{
 
               setTeamId(
@@ -4023,6 +5474,7 @@ function MemberDrawer({
             <option value="">
               —
             </option>
+
 
             {teams.map(
               t=>
@@ -4038,40 +5490,49 @@ function MemberDrawer({
 
         </Field>
 
+
         <h3>
           Custom permissions
         </h3>
 
+
         {Object.keys(
           perms
         ).map(
-          k=>
+          key=>
             <label
               className="toggleLine"
-              key={k}
+              key={key}
             >
 
               <span>
+
                 {
-                  k.replaceAll(
+                  key.replaceAll(
                     '_',
                     ' '
                   )
                 }
+
               </span>
+
 
               <input
                 type="checkbox"
+
                 checked={
-                  perms[k]
+                  perms[key]
                 }
+
                 onChange={e=>{
 
                   setPerms({
                     ...perms,
-                    [k]:
+
+                    [key]:
                       e.target.checked
                   })
+
 
                   setSaved(false)
                 }}
@@ -4080,18 +5541,25 @@ function MemberDrawer({
             </label>
         )}
 
+
         <button
           className="primary full"
+
           disabled={saving}
+
           onClick={save}
         >
+
           {
             saving
               ? 'Đang lưu...'
+
               : saved
                 ? '✓ Đã lưu'
+
                 : 'Lưu quyền'
           }
+
         </button>
 
       </div>
@@ -4100,6 +5568,11 @@ function MemberDrawer({
 
   </div>
 }
+
+
+// =====================================================
+// PROJECT MEMBER DRAWER
+// =====================================================
 
 function ProjectMemberDrawer({
   project,
@@ -4117,12 +5590,7 @@ function ProjectMemberDrawer({
         )
     )
 
-  /*
-    v16.6:
-    lấy tất cả active member trong Workspace,
-    bao gồm Manager / Team Lead / Member,
-    chỉ loại người đã nằm trong Project.
-  */
+
   const available=
     (workspaceMembers||[])
       .filter(
@@ -4134,34 +5602,55 @@ function ProjectMemberDrawer({
           )
       )
 
-  const [userId,setUserId]=useState(
-    available[0]?.user_id||''
-  )
 
-  const [role,setRole]=useState('member')
+  const [userId,setUserId]=
+    useState(
+      available[0]
+        ?.user_id
+      ||
+      ''
+    )
 
-  const [canCreateTask,setCanCreateTask]=useState(true)
 
-  const [canAssignTask,setCanAssignTask]=useState(true)
+  const [role,setRole]=
+    useState('member')
 
-  const [canManageMembers,setCanManageMembers]=useState(false)
 
-  const [saving,setSaving]=useState(false)
-  const [error,setError]=useState('')
+  const [canCreateTask,setCanCreateTask]=
+    useState(true)
+
+
+  const [canAssignTask,setCanAssignTask]=
+    useState(true)
+
+
+  const [canManageMembers,setCanManageMembers]=
+    useState(false)
+
+
+  const [saving,setSaving]=
+    useState(false)
+
+
+  const [error,setError]=
+    useState('')
+
 
   async function submit(){
 
     if(!userId){
 
       setError(
-        'Không còn member nào trong workspace để thêm vào Project.'
+        'Không còn member nào trong Workspace để thêm.'
       )
 
       return
     }
 
+
     setSaving(true)
     setError('')
+
 
     const {
       error:e
@@ -4188,7 +5677,9 @@ function ProjectMemberDrawer({
       }
     )
 
+
     setSaving(false)
+
 
     if(e){
 
@@ -4199,11 +5690,14 @@ function ProjectMemberDrawer({
       return
     }
 
+
     await onSaved?.()
   }
 
+
   return <div
     className="drawerWrap"
+
     onMouseDown={e=>
       e.target===
         e.currentTarget
@@ -4222,11 +5716,16 @@ function ProjectMemberDrawer({
             {project.code}
           </small>
 
-          <h2 style={{margin:0}}>
+          <h2
+            style={{
+              margin:0
+            }}
+          >
             Add member vào Project
           </h2>
 
         </div>
+
 
         <button
           onClick={onClose}
@@ -4236,12 +5735,14 @@ function ProjectMemberDrawer({
 
       </div>
 
+
       <div className="drawerBody">
 
         <Field label="Member">
 
           <select
             value={userId}
+
             onChange={e=>
               setUserId(
                 e.target.value
@@ -4255,16 +5756,20 @@ function ProjectMemberDrawer({
               </option>
             }
 
+
             {available.map(
               m=>
                 <option
                   key={m.user_id}
                   value={m.user_id}
                 >
+
                   {
-                    m.profiles?.full_name
+                    m.profiles
+                      ?.full_name
                     ||
-                    m.profiles?.email
+                    m.profiles
+                      ?.email
                   }
 
                   {
@@ -4272,8 +5777,10 @@ function ProjectMemberDrawer({
                       ? ` · ${
                           m.role==='manager'
                             ? 'Trưởng phòng'
+
                             : m.role==='team_lead'
                               ? 'Team Lead'
+
                               : 'Member'
                         }`
                       : ''
@@ -4284,6 +5791,7 @@ function ProjectMemberDrawer({
                       ? ` · ${m.teams.name}`
                       : ''
                   }
+
                 </option>
             )}
 
@@ -4291,10 +5799,12 @@ function ProjectMemberDrawer({
 
         </Field>
 
+
         <Field label="Role trong Project">
 
           <select
             value={role}
+
             onChange={e=>
               setRole(
                 e.target.value
@@ -4318,6 +5828,7 @@ function ProjectMemberDrawer({
 
         </Field>
 
+
         <label className="toggleLine">
 
           <span>
@@ -4326,9 +5837,11 @@ function ProjectMemberDrawer({
 
           <input
             type="checkbox"
+
             checked={
               canCreateTask
             }
+
             onChange={e=>
               setCanCreateTask(
                 e.target.checked
@@ -4338,6 +5851,7 @@ function ProjectMemberDrawer({
 
         </label>
 
+
         <label className="toggleLine">
 
           <span>
@@ -4346,9 +5860,11 @@ function ProjectMemberDrawer({
 
           <input
             type="checkbox"
+
             checked={
               canAssignTask
             }
+
             onChange={e=>
               setCanAssignTask(
                 e.target.checked
@@ -4358,6 +5874,7 @@ function ProjectMemberDrawer({
 
         </label>
 
+
         <label className="toggleLine">
 
           <span>
@@ -4366,9 +5883,11 @@ function ProjectMemberDrawer({
 
           <input
             type="checkbox"
+
             checked={
               canManageMembers
             }
+
             onChange={e=>
               setCanManageMembers(
                 e.target.checked
@@ -4378,26 +5897,32 @@ function ProjectMemberDrawer({
 
         </label>
 
+
         {error &&
           <div className="errorBox">
             {error}
           </div>
         }
 
+
         <button
           className="primary full"
+
           disabled={
             saving
             ||
             !userId
           }
+
           onClick={submit}
         >
+
           {
             saving
               ? 'Đang thêm...'
               : 'Add to Project'
           }
+
         </button>
 
       </div>
@@ -4407,108 +5932,17 @@ function ProjectMemberDrawer({
   </div>
 }
 
+
+// =====================================================
+// NOTIFICATION PANEL
+// =====================================================
+
 function NotificationPanel({
   notifications,
-  prefs,
   onClose,
-  onChanged
+  onOpenNotification,
+  onMarkAll
 }){
-
-  const [localPrefs,setLocalPrefs]=useState(
-    prefs||{
-      email_assigned:true,
-      email_comment:false,
-      email_review:true,
-      email_mention:true,
-      email_deadline:true,
-      in_app_enabled:true
-    }
-  )
-
-  const [saving,setSaving]=useState(false)
-
-  async function markRead(id){
-
-    await supabase
-      .from('notifications')
-      .update({
-        is_read:true
-      })
-      .eq(
-        'id',
-        id
-      )
-
-    onChanged?.()
-  }
-
-  async function markAll(){
-
-    const {
-      data:{user}
-    } = await supabase.auth
-      .getUser()
-
-    if(!user) return
-
-    await supabase
-      .from('notifications')
-      .update({
-        is_read:true
-      })
-      .eq(
-        'user_id',
-        user.id
-      )
-      .eq(
-        'is_read',
-        false
-      )
-
-    onChanged?.()
-  }
-
-  async function savePrefs(){
-
-    const {
-      data:{user}
-    } = await supabase.auth
-      .getUser()
-
-    if(!user) return
-
-    setSaving(true)
-
-    const {
-      error
-    } = await supabase
-      .from(
-        'notification_preferences'
-      )
-      .upsert({
-        user_id:
-          user.id,
-
-        ...localPrefs,
-
-        updated_at:
-          new Date()
-            .toISOString()
-      })
-
-    setSaving(false)
-
-    if(error){
-
-      alert(
-        error.message
-      )
-
-    }else{
-
-      onChanged?.()
-    }
-  }
 
   return <div className="notificationPopover">
 
@@ -4521,26 +5955,30 @@ function NotificationPanel({
         </b>
 
         <small>
+
           {
             notifications.filter(
               n=>!n.is_read
             ).length
           }
-          {' '}
-          chưa đọc
+
+          {' '}chưa đọc
+
         </small>
 
       </div>
+
 
       <div>
 
         <button
           onClick={
-            markAll
+            onMarkAll
           }
         >
           Đánh dấu đã đọc
         </button>
+
 
         <button
           onClick={
@@ -4554,12 +5992,14 @@ function NotificationPanel({
 
     </div>
 
+
     <div className="notificationList">
 
       {notifications.map(
         n=>
           <button
             key={n.id}
+
             className={
               'notificationItem '+
               (
@@ -4568,14 +6008,16 @@ function NotificationPanel({
                   : ''
               )
             }
+
             onClick={()=>
-              markRead(
-                n.id
+              onOpenNotification(
+                n
               )
             }
           >
 
             <span className="notifDot"/>
+
 
             <span>
 
@@ -4588,17 +6030,14 @@ function NotificationPanel({
               </small>
 
               <em>
-                {
-                  fmtDateTime(
-                    n.created_at
-                  )
-                }
+                {fmtDateTime(n.created_at)}
               </em>
 
             </span>
 
           </button>
       )}
+
 
       {!notifications.length &&
         <div className="empty">
@@ -4611,36 +6050,53 @@ function NotificationPanel({
   </div>
 }
 
+
+// =====================================================
+// TEAM CREATE
+// =====================================================
+
 function TeamCreateDrawer({
   members,
   onClose,
   onCreate
 }){
 
-  const [form,setForm]=useState({
-    name:'',
-    code:'',
-    description:'',
-    lead_id:''
-  })
+  const [form,setForm]=
+    useState({
+      name:'',
+      code:'',
+      description:'',
+      lead_id:''
+    })
 
-  const [saving,setSaving]=useState(false)
-  const [error,setError]=useState('')
+
+  const [saving,setSaving]=
+    useState(false)
+
+
+  const [error,setError]=
+    useState('')
+
 
   async function submit(){
 
     if(
       !form.name.trim()
     ){
-      return setError(
+
+      setError(
         'Vui lòng nhập tên Team'
       )
+
+      return
     }
+
 
     setSaving(true)
     setError('')
 
-    const r=
+
+    const result=
       await onCreate({
         ...form,
 
@@ -4653,19 +6109,28 @@ function TeamCreateDrawer({
             .toUpperCase()
       })
 
+
     setSaving(false)
 
-    if(r?.error){
+
+    if(
+      result?.error
+    ){
+
       setError(
-        r.error.message
+        result.error.message
         ||
-        String(r.error)
+        String(
+          result.error
+        )
       )
     }
   }
 
+
   return <div
     className="drawerWrap"
+
     onMouseDown={e=>
       e.target===
         e.currentTarget
@@ -4690,15 +6155,18 @@ function TeamCreateDrawer({
 
       </div>
 
+
       <div className="drawerBody">
 
         <Field label="Tên Team">
 
           <input
             className="fullInput"
+
             value={
               form.name
             }
+
             onChange={e=>
               setForm({
                 ...form,
@@ -4710,13 +6178,16 @@ function TeamCreateDrawer({
 
         </Field>
 
+
         <Field label="Mã Team">
 
           <input
             className="fullInput"
+
             value={
               form.code
             }
+
             onChange={e=>
               setForm({
                 ...form,
@@ -4728,13 +6199,16 @@ function TeamCreateDrawer({
 
         </Field>
 
+
         <Field label="Mô tả">
 
           <textarea
             rows="5"
+
             value={
               form.description
             }
+
             onChange={e=>
               setForm({
                 ...form,
@@ -4746,12 +6220,14 @@ function TeamCreateDrawer({
 
         </Field>
 
+
         <Field label="Team Lead">
 
           <select
             value={
               form.lead_id
             }
+
             onChange={e=>
               setForm({
                 ...form,
@@ -4765,17 +6241,22 @@ function TeamCreateDrawer({
               Chưa gán
             </option>
 
+
             {members.map(
               m=>
                 <option
                   key={m.user_id}
                   value={m.user_id}
                 >
+
                   {
-                    m.profiles?.full_name
+                    m.profiles
+                      ?.full_name
                     ||
-                    m.profiles?.email
+                    m.profiles
+                      ?.email
                   }
+
                 </option>
             )}
 
@@ -4783,22 +6264,28 @@ function TeamCreateDrawer({
 
         </Field>
 
+
         {error &&
           <div className="errorBox">
             {error}
           </div>
         }
 
+
         <button
           className="primary full"
+
           disabled={saving}
+
           onClick={submit}
         >
+
           {
             saving
               ? 'Đang tạo...'
               : 'Tạo Team'
           }
+
         </button>
 
       </div>
@@ -4807,6 +6294,11 @@ function TeamCreateDrawer({
 
   </div>
 }
+
+
+// =====================================================
+// PROJECT CREATE
+// =====================================================
 
 function ProjectCreateDrawer({
   teams,
@@ -4822,44 +6314,68 @@ function ProjectCreateDrawer({
     ||
     ''
 
-  const [form,setForm]=useState({
-    name:'',
-    code:'',
-    team_id:
-      defaultTeam,
-    description:'',
-    start_at:'',
-    due_at:'',
-    visibility:'team',
-    require_task_review:true
-  })
 
-  const [saving,setSaving]=useState(false)
-  const [error,setError]=useState('')
+  const [form,setForm]=
+    useState({
+
+      name:'',
+      code:'',
+
+      team_id:
+        defaultTeam,
+
+      description:'',
+
+      start_at:'',
+      due_at:'',
+
+      visibility:'team',
+
+      require_task_review:true
+    })
+
+
+  const [saving,setSaving]=
+    useState(false)
+
+
+  const [error,setError]=
+    useState('')
+
 
   async function submit(){
 
     if(
       !form.name.trim()
     ){
-      return setError(
+
+      setError(
         'Vui lòng nhập tên Project'
       )
+
+      return
     }
+
 
     if(
       !form.team_id
     ){
-      return setError(
+
+      setError(
         'Vui lòng chọn Team'
       )
+
+      return
     }
+
 
     setSaving(true)
     setError('')
 
-    const r=
+
+    const result=
       await onCreate({
+
         ...form,
 
         name:
@@ -4887,19 +6403,28 @@ function ProjectCreateDrawer({
             : null
       })
 
+
     setSaving(false)
 
-    if(r?.error){
+
+    if(
+      result?.error
+    ){
+
       setError(
-        r.error.message
+        result.error.message
         ||
-        String(r.error)
+        String(
+          result.error
+        )
       )
     }
   }
 
+
   return <div
     className="drawerWrap"
+
     onMouseDown={e=>
       e.target===
         e.currentTarget
@@ -4924,15 +6449,18 @@ function ProjectCreateDrawer({
 
       </div>
 
+
       <div className="drawerBody">
 
         <Field label="Tên Project">
 
           <input
             className="fullInput"
+
             value={
               form.name
             }
+
             onChange={e=>
               setForm({
                 ...form,
@@ -4944,13 +6472,16 @@ function ProjectCreateDrawer({
 
         </Field>
 
+
         <Field label="Mã Project">
 
           <input
             className="fullInput"
+
             value={
               form.code
             }
+
             onChange={e=>
               setForm({
                 ...form,
@@ -4962,12 +6493,14 @@ function ProjectCreateDrawer({
 
         </Field>
 
+
         <Field label="Team">
 
           <select
             value={
               form.team_id
             }
+
             onChange={e=>
               setForm({
                 ...form,
@@ -4991,13 +6524,16 @@ function ProjectCreateDrawer({
 
         </Field>
 
+
         <Field label="Mô tả">
 
           <textarea
             rows="6"
+
             value={
               form.description
             }
+
             onChange={e=>
               setForm({
                 ...form,
@@ -5009,15 +6545,18 @@ function ProjectCreateDrawer({
 
         </Field>
 
+
         <div className="fieldGrid">
 
           <Field label="Bắt đầu">
 
             <input
               type="date"
+
               value={
                 form.start_at
               }
+
               onChange={e=>
                 setForm({
                   ...form,
@@ -5029,13 +6568,16 @@ function ProjectCreateDrawer({
 
           </Field>
 
+
           <Field label="Deadline">
 
             <input
               type="date"
+
               value={
                 form.due_at
               }
+
               onChange={e=>
                 setForm({
                   ...form,
@@ -5049,12 +6591,14 @@ function ProjectCreateDrawer({
 
         </div>
 
+
         <Field label="Visibility">
 
           <select
             value={
               form.visibility
             }
+
             onChange={e=>
               setForm({
                 ...form,
@@ -5080,6 +6624,7 @@ function ProjectCreateDrawer({
 
         </Field>
 
+
         <label className="toggleLine">
 
           <span>
@@ -5088,12 +6633,15 @@ function ProjectCreateDrawer({
 
           <input
             type="checkbox"
+
             checked={
               form.require_task_review
             }
+
             onChange={e=>
               setForm({
                 ...form,
+
                 require_task_review:
                   e.target.checked
               })
@@ -5102,22 +6650,28 @@ function ProjectCreateDrawer({
 
         </label>
 
+
         {error &&
           <div className="errorBox">
             {error}
           </div>
         }
 
+
         <button
           className="primary full"
+
           disabled={saving}
+
           onClick={submit}
         >
+
           {
             saving
               ? 'Đang tạo...'
               : 'Tạo Project'
           }
+
         </button>
 
       </div>
@@ -5127,6 +6681,11 @@ function ProjectCreateDrawer({
   </div>
 }
 
+
+// =====================================================
+// INVITE
+// =====================================================
+
 function InviteDrawer({
   teams,
   projects,
@@ -5135,33 +6694,44 @@ function InviteDrawer({
   onCreated
 }){
 
-  const [form,setForm]=useState({
+  const [form,setForm]=
+    useState({
 
-    team_id:
-      membership?.team_id
-      ||
-      teams[0]?.id
-      ||
-      '',
+      team_id:
+        membership?.team_id
+        ||
+        teams[0]?.id
+        ||
+        '',
 
-    project_id:'',
+      project_id:'',
 
-    role:'member',
+      role:'member',
 
-    max_uses:50,
+      max_uses:50,
 
-    expires_days:30
-  })
+      expires_days:30
+    })
 
-  const [saving,setSaving]=useState(false)
-  const [error,setError]=useState('')
-  const [link,setLink]=useState('')
+
+  const [saving,setSaving]=
+    useState(false)
+
+
+  const [error,setError]=
+    useState('')
+
+
+  const [link,setLink]=
+    useState('')
+
 
   async function create(){
 
     setSaving(true)
     setError('')
     setLink('')
+
 
     const expires=
       form.expires_days
@@ -5174,6 +6744,7 @@ function InviteDrawer({
             86400000
           ).toISOString()
         : null
+
 
     const {
       data,
@@ -5202,28 +6773,38 @@ function InviteDrawer({
       }
     )
 
+
     setSaving(false)
 
+
     if(e){
-      return setError(
+
+      setError(
         e.message
       )
+
+      return
     }
+
 
     const token=
       data?.token
       ||
       data
 
+
     const url=
       `${appUrl}/?invite=${encodeURIComponent(token)}`
+
 
     setLink(
       url
     )
 
+
     onCreated?.()
   }
+
 
   async function copy(){
 
@@ -5238,8 +6819,10 @@ function InviteDrawer({
     }catch{}
   }
 
+
   return <div
     className="drawerWrap"
+
     onMouseDown={e=>
       e.target===
         e.currentTarget
@@ -5264,13 +6847,14 @@ function InviteDrawer({
 
       </div>
 
+
       <div className="drawerBody">
 
         <p>
           Tạo 1 link và gửi cho nhiều người.
-          Bất kỳ tài khoản Google nào cũng có thể đăng nhập;
-          quyền được cấp theo link.
+          Bất kỳ tài khoản Google nào cũng có thể đăng nhập.
         </p>
+
 
         <Field label="Team">
 
@@ -5278,6 +6862,7 @@ function InviteDrawer({
             value={
               form.team_id
             }
+
             onChange={e=>
               setForm({
                 ...form,
@@ -5290,6 +6875,7 @@ function InviteDrawer({
             <option value="">
               Không gán Team
             </option>
+
 
             {teams.map(
               t=>
@@ -5305,12 +6891,14 @@ function InviteDrawer({
 
         </Field>
 
+
         <Field label="Project">
 
           <select
             value={
               form.project_id
             }
+
             onChange={e=>
               setForm({
                 ...form,
@@ -5323,6 +6911,7 @@ function InviteDrawer({
             <option value="">
               Chỉ vào Workspace/Team
             </option>
+
 
             {projects.map(
               p=>
@@ -5338,12 +6927,14 @@ function InviteDrawer({
 
         </Field>
 
+
         <Field label="Role mặc định">
 
           <select
             value={
               form.role
             }
+
             onChange={e=>
               setForm({
                 ...form,
@@ -5365,6 +6956,7 @@ function InviteDrawer({
 
         </Field>
 
+
         <div className="fieldGrid">
 
           <Field label="Số lượt dùng">
@@ -5372,9 +6964,11 @@ function InviteDrawer({
             <input
               type="number"
               min="1"
+
               value={
                 form.max_uses
               }
+
               onChange={e=>
                 setForm({
                   ...form,
@@ -5386,14 +6980,17 @@ function InviteDrawer({
 
           </Field>
 
+
           <Field label="Hết hạn sau (ngày)">
 
             <input
               type="number"
               min="1"
+
               value={
                 form.expires_days
               }
+
               onChange={e=>
                 setForm({
                   ...form,
@@ -5407,13 +7004,16 @@ function InviteDrawer({
 
         </div>
 
+
         {error &&
           <div className="errorBox">
             {error}
           </div>
         }
 
+
         {link
+
           ? <>
 
               <Field label="Invite link">
@@ -5426,20 +7026,18 @@ function InviteDrawer({
 
               </Field>
 
+
               <button
                 className="primary full"
-                onClick={
-                  copy
-                }
+                onClick={copy}
               >
                 Copy link mời
               </button>
 
+
               <button
                 className="secondary full"
-                onClick={
-                  create
-                }
+                onClick={create}
               >
                 Tạo link mới
               </button>
@@ -5448,16 +7046,18 @@ function InviteDrawer({
 
           : <button
               className="primary full"
+
               disabled={saving}
-              onClick={
-                create
-              }
+
+              onClick={create}
             >
+
               {
                 saving
                   ? 'Đang tạo...'
                   : 'Tạo link mời'
               }
+
             </button>
         }
 
@@ -5467,6 +7067,11 @@ function InviteDrawer({
 
   </div>
 }
+
+
+// =====================================================
+// FILES
+// =====================================================
 
 function ProjectFiles(){
 
@@ -5487,11 +7092,18 @@ function ProjectFiles(){
   </div>
 }
 
+
+// =====================================================
+// PROJECT ACTIVITY
+// =====================================================
+
 function ProjectActivity({
   project
 }){
 
-  const [rows,setRows]=useState([])
+  const [rows,setRows]=
+    useState([])
+
 
   useEffect(()=>{
 
@@ -5518,7 +7130,10 @@ function ProjectActivity({
           )
       )
 
-  },[project.id])
+  },[
+    project.id
+  ])
+
 
   return <div className="panel">
 
@@ -5526,7 +7141,9 @@ function ProjectActivity({
       Project Activity
     </h3>
 
+
     {rows.length
+
       ? rows.map(
           x=>
             <div
@@ -5537,6 +7154,7 @@ function ProjectActivity({
               <span>
                 •
               </span>
+
 
               <div>
 
