@@ -2795,6 +2795,10 @@ function ProjectPage({
   ] = useState(false)
 
 
+  const [projectMemberEdit,setProjectMemberEdit]=
+    useState(null)
+
+
   const canManageProjectMembers=
     membership?.role==='manager'
     ||
@@ -3071,11 +3075,10 @@ function ProjectPage({
                 <button
                   className="primary"
 
-                  onClick={()=>
-                    setProjectMemberOpen(
-                      true
-                    )
-                  }
+                  onClick={()=>{
+                    setProjectMemberEdit(null)
+                    setProjectMemberOpen(true)
+                  }}
                 >
                   ＋ Add member
                 </button>
@@ -3111,6 +3114,23 @@ function ProjectPage({
                     {m.role_in_project}
                   </small>
 
+                  {canManageProjectMembers &&
+                    <button
+                      type="button"
+                      className="secondary"
+                      style={{
+                        marginLeft:'auto',
+                        padding:'6px 10px'
+                      }}
+                      onClick={()=>{
+                        setProjectMemberEdit(m)
+                        setProjectMemberOpen(true)
+                      }}
+                    >
+                      Sửa
+                    </button>
+                  }
+
                 </div>
             )}
 
@@ -3126,6 +3146,8 @@ function ProjectPage({
               <ProjectMemberDrawer
                 project={project}
 
+                item={projectMemberEdit}
+
                 projectMembers={
                   members
                 }
@@ -3134,17 +3156,15 @@ function ProjectPage({
                   workspaceMembers||[]
                 }
 
-                onClose={()=>
-                  setProjectMemberOpen(
-                    false
-                  )
-                }
+                onClose={()=>{
+                  setProjectMemberOpen(false)
+                  setProjectMemberEdit(null)
+                }}
 
                 onSaved={async()=>{
 
-                  setProjectMemberOpen(
-                    false
-                  )
+                  setProjectMemberOpen(false)
+                  setProjectMemberEdit(null)
 
                   await onProjectMembersChanged?.()
                 }}
@@ -5627,11 +5647,16 @@ function MemberDrawer({
 
 function ProjectMemberDrawer({
   project,
+  item,
   projectMembers,
   workspaceMembers,
   onClose,
   onSaved
 }){
+
+  const isEdit=
+    !!item
+
 
   const existingIds=
     new Set(
@@ -5656,27 +5681,44 @@ function ProjectMemberDrawer({
 
   const [userId,setUserId]=
     useState(
-      available[0]
-        ?.user_id
+      item?.user_id
+      ||
+      available[0]?.user_id
       ||
       ''
     )
 
 
   const [role,setRole]=
-    useState('member')
+    useState(
+      item?.role_in_project
+      ||
+      'member'
+    )
 
 
   const [canCreateTask,setCanCreateTask]=
-    useState(true)
+    useState(
+      item
+        ? !!item.can_create_task
+        : true
+    )
 
 
   const [canAssignTask,setCanAssignTask]=
-    useState(true)
+    useState(
+      item
+        ? !!item.can_assign_task
+        : true
+    )
 
 
   const [canManageMembers,setCanManageMembers]=
-    useState(false)
+    useState(
+      item
+        ? !!item.can_manage_project_members
+        : false
+    )
 
 
   const [saving,setSaving]=
@@ -5703,28 +5745,119 @@ function ProjectMemberDrawer({
     setError('')
 
 
+    const rpcName=
+      isEdit
+        ? 'update_project_member_safe'
+        : 'add_project_member_safe'
+
+
+    const payload=
+      isEdit
+        ? {
+            p_project_id:
+              project.id,
+
+            p_user_id:
+              userId,
+
+            p_role_in_project:
+              role,
+
+            p_can_create_task:
+              canCreateTask,
+
+            p_can_assign_task:
+              canAssignTask,
+
+            p_can_manage_project_members:
+              canManageMembers
+          }
+        : {
+            p_project_id:
+              project.id,
+
+            p_user_id:
+              userId,
+
+            p_role_in_project:
+              role,
+
+            p_can_create_task:
+              canCreateTask,
+
+            p_can_assign_task:
+              canAssignTask,
+
+            p_can_manage_project_members:
+              canManageMembers
+          }
+
+
     const {
       error:e
     } = await supabase.rpc(
-      'add_project_member_safe',
+      rpcName,
+      payload
+    )
+
+
+    setSaving(false)
+
+
+    if(e){
+
+      setError(
+        e.message
+      )
+
+      return
+    }
+
+
+    await onSaved?.()
+  }
+
+
+  async function removeMember(){
+
+    if(!isEdit){
+      return
+    }
+
+
+    const name=
+      item?.profiles?.full_name
+      ||
+      item?.profiles?.email
+      ||
+      'member này'
+
+
+    const ok=
+      window.confirm(
+        `Gỡ ${name} khỏi Project? Người này sẽ không còn quyền truy cập Project theo membership hiện tại.`
+      )
+
+
+    if(!ok){
+      return
+    }
+
+
+    setSaving(true)
+    setError('')
+
+
+    const {
+      error:e
+    } = await supabase.rpc(
+      'remove_project_member_safe',
       {
         p_project_id:
           project.id,
 
         p_user_id:
-          userId,
-
-        p_role_in_project:
-          role,
-
-        p_can_create_task:
-          canCreateTask,
-
-        p_can_assign_task:
-          canAssignTask,
-
-        p_can_manage_project_members:
-          canManageMembers
+          item.user_id
       }
     )
 
@@ -5772,7 +5905,10 @@ function ProjectMemberDrawer({
               margin:0
             }}
           >
-            Add member vào Project
+            {isEdit
+              ? 'Sửa member trong Project'
+              : 'Add member vào Project'
+            }
           </h2>
 
         </div>
@@ -5791,62 +5927,87 @@ function ProjectMemberDrawer({
 
         <Field label="Member">
 
-          <select
-            value={userId}
+          {isEdit
+            ? <div
+                className="fullInput"
+                style={{
+                  display:'flex',
+                  alignItems:'center',
+                  gap:10,
+                  background:'#f8fafc'
+                }}
+              >
 
-            onChange={e=>
-              setUserId(
-                e.target.value
-              )
-            }
-          >
+                <Avatar p={item?.profiles}/>
 
-            {!available.length &&
-              <option value="">
-                Không còn member khả dụng
-              </option>
-            }
+                <span>
+                  <b>
+                    {item?.profiles?.full_name
+                      ||
+                      item?.profiles?.email
+                    }
+                  </b>
+                </span>
+
+              </div>
+
+            : <select
+                value={userId}
+
+                onChange={e=>
+                  setUserId(
+                    e.target.value
+                  )
+                }
+              >
+
+                {!available.length &&
+                  <option value="">
+                    Không còn member khả dụng
+                  </option>
+                }
 
 
-            {available.map(
-              m=>
-                <option
-                  key={m.user_id}
-                  value={m.user_id}
-                >
+                {available.map(
+                  m=>
+                    <option
+                      key={m.user_id}
+                      value={m.user_id}
+                    >
 
-                  {
-                    m.profiles
-                      ?.full_name
-                    ||
-                    m.profiles
-                      ?.email
-                  }
+                      {
+                        m.profiles
+                          ?.full_name
+                        ||
+                        m.profiles
+                          ?.email
+                      }
 
-                  {
-                    m.role
-                      ? ` · ${
-                          m.role==='manager'
-                            ? 'Trưởng phòng'
+                      {
+                        m.role
+                          ? ` · ${
+                              m.role==='manager'
+                                ? 'Trưởng phòng'
 
-                            : m.role==='team_lead'
-                              ? 'Team Lead'
+                                : m.role==='team_lead'
+                                  ? 'Team Lead'
 
-                              : 'Member'
-                        }`
-                      : ''
-                  }
+                                  : 'Member'
+                            }`
+                          : ''
+                      }
 
-                  {
-                    m.teams?.name
-                      ? ` · ${m.teams.name}`
-                      : ''
-                  }
+                      {
+                        m.teams?.name
+                          ? ` · ${m.teams.name}`
+                          : ''
+                      }
 
-                </option>
-            )}
+                    </option>
+                )}
 
-          </select>
+              </select>
+          }
 
         </Field>
 
@@ -5970,11 +6131,30 @@ function ProjectMemberDrawer({
 
           {
             saving
-              ? 'Đang thêm...'
-              : 'Add to Project'
+              ? 'Đang lưu...'
+              : isEdit
+                ? 'Lưu thay đổi'
+                : 'Add to Project'
           }
 
         </button>
+
+
+        {isEdit &&
+          <button
+            type="button"
+            className="secondary full"
+            disabled={saving}
+            onClick={removeMember}
+            style={{
+              marginTop:10,
+              color:'#b42318',
+              borderColor:'#f0b4ad'
+            }}
+          >
+            Gỡ khỏi Project
+          </button>
+        }
 
       </div>
 
