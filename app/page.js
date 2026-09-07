@@ -352,6 +352,75 @@ export default function Home(){
 
 
   // ===================================================
+  // REALTIME PROJECT TASKS / MEMBERS
+  // ===================================================
+
+  useEffect(()=>{
+
+    if(
+      !supabase
+      ||
+      !project?.id
+      ||
+      view!=='project'
+    ){
+      return
+    }
+
+
+    const refresh=()=>{
+      openProject(
+        project,
+        {
+          tab:projectTab,
+          preserveTaskFilter:true
+        }
+      )
+    }
+
+
+    const taskChannel=
+      supabase
+        .channel(
+          'project-tasks-'+project.id
+        )
+        .on(
+          'postgres_changes',
+          {
+            event:'*',
+            schema:'public',
+            table:'tasks',
+            filter:`project_id=eq.${project.id}`
+          },
+          refresh
+        )
+        .on(
+          'postgres_changes',
+          {
+            event:'*',
+            schema:'public',
+            table:'project_members',
+            filter:`project_id=eq.${project.id}`
+          },
+          refresh
+        )
+        .subscribe()
+
+
+    return ()=>{
+      supabase.removeChannel(
+        taskChannel
+      )
+    }
+
+  },[
+    project?.id,
+    projectTab,
+    view
+  ])
+
+
+  // ===================================================
   // BOOTSTRAP
   // ===================================================
 
@@ -906,11 +975,13 @@ export default function Home(){
     )
 
 
-    setTaskFilter(
-      canSeeAll
-        ? 'all'
-        : 'my'
-    )
+    if(!options.preserveTaskFilter){
+      setTaskFilter(
+        canSeeAll
+          ? 'all'
+          : 'my'
+      )
+    }
 
 
     return {
@@ -1287,6 +1358,74 @@ export default function Home(){
 
 
   // ===================================================
+  // CANCEL PROJECT
+  // ===================================================
+
+  async function cancelProject(p){
+
+    if(!p) return
+
+
+    const reason=
+      window.prompt(
+        'Lý do hủy Project (bắt buộc):',
+        ''
+      )
+
+
+    if(reason===null) return
+
+
+    if(!reason.trim()){
+      alert('Vui lòng nhập lý do hủy Project.')
+      return
+    }
+
+
+    const ok=
+      window.confirm(
+        `Xác nhận hủy Project "${p.name}"? Project sẽ được ẩn khỏi danh sách đang hoạt động nhưng dữ liệu không bị xóa.`
+      )
+
+
+    if(!ok) return
+
+
+    const {error:e}=
+      await supabase.rpc(
+        'cancel_project_safe',
+        {
+          p_project_id:p.id,
+          p_reason:reason.trim()
+        }
+      )
+
+
+    if(e){
+      alert(
+        'Không hủy được Project: '+
+        e.message
+      )
+      return
+    }
+
+
+    setProjects(
+      prev=>prev.filter(
+        x=>x.id!==p.id
+      )
+    )
+
+    setProject(null)
+    setTasks([])
+    setProjectMembers([])
+    setView('projects')
+
+    showToast('Đã hủy Project')
+  }
+
+
+  // ===================================================
   // CURRENT PROJECT PERMISSION
   // ===================================================
 
@@ -1324,6 +1463,27 @@ export default function Home(){
       ||
       currentUserIsProjectLead
     )
+
+
+  const canAutoAddTaskAssignee=
+    !!project
+    &&
+    (
+      membership?.role==='manager'
+      ||
+      membership?.role==='team_lead'
+      ||
+      currentUserIsProjectLead
+      ||
+      currentProjectMember
+        ?.can_manage_project_members===true
+    )
+
+
+  const assignableTaskMembers=
+    canAutoAddTaskAssignee
+      ? members
+      : projectMembers
 
 
   // ===================================================
@@ -1420,6 +1580,111 @@ export default function Home(){
     id,
     patch
   ){
+
+    if(
+      Object.prototype
+        .hasOwnProperty
+        .call(
+          patch,
+          'assignee_id'
+        )
+      &&
+      patch.assignee_id
+      &&
+      project
+      &&
+      !projectMembers.some(
+        m=>m.user_id===patch.assignee_id
+      )
+    ){
+
+      const targetMember=
+        members.find(
+          m=>m.user_id===patch.assignee_id
+        )
+
+
+      if(!targetMember){
+        alert('Không tìm thấy người này trong Workspace.')
+        return
+      }
+
+
+      const canAutoAdd=
+        membership?.role==='manager'
+        ||
+        membership?.role==='team_lead'
+        ||
+        currentUserIsProjectLead
+        ||
+        currentProjectMember
+          ?.can_manage_project_members===true
+
+
+      if(!canAutoAdd){
+        alert(
+          'Người này chưa thuộc Project. Bạn không có quyền thêm member vào Project.'
+        )
+        return
+      }
+
+
+      const targetName=
+        targetMember.profiles?.full_name
+        ||
+        targetMember.profiles?.email
+        ||
+        'người này'
+
+
+      const ok=
+        window.confirm(
+          `${targetName} chưa thuộc Project. Thêm người này vào Project với role Member rồi giao task luôn?`
+        )
+
+
+      if(!ok) return
+
+
+      const {error:addError}=
+        await supabase.rpc(
+          'add_project_member_safe',
+          {
+            p_project_id:project.id,
+            p_user_id:patch.assignee_id,
+            p_role_in_project:'member',
+            p_can_create_task:true,
+            p_can_assign_task:true,
+            p_can_manage_project_members:false
+          }
+        )
+
+
+      if(addError){
+        alert(
+          'Không thể thêm người này vào Project: '+
+          addError.message
+        )
+        return
+      }
+
+
+      setProjectMembers(
+        prev=>[
+          ...prev,
+          {
+            project_id:project.id,
+            user_id:patch.assignee_id,
+            role_in_project:'member',
+            can_create_task:true,
+            can_assign_task:true,
+            can_manage_project_members:false,
+            profiles:targetMember.profiles
+          }
+        ]
+      )
+    }
+
 
     const old=
       tasks.find(
@@ -2225,6 +2490,13 @@ export default function Home(){
 
           members={projectMembers}
           workspaceMembers={members}
+          assignableTaskMembers={
+            assignableTaskMembers
+          }
+
+          onCancelProject={()=>
+            cancelProject(project)
+          }
 
           openTask={(task)=>{
 
@@ -2331,7 +2603,7 @@ export default function Home(){
         project={project}
 
         projectMembers={
-          projectMembers
+          assignableTaskMembers
         }
 
         focusCommentId={
@@ -2773,6 +3045,9 @@ function ProjectPage({
 
   members,
   workspaceMembers,
+  assignableTaskMembers,
+
+  onCancelProject,
 
   openTask,
 
@@ -2806,6 +3081,12 @@ function ProjectPage({
     ||
     !!currentProjectMember
       ?.can_manage_project_members
+
+
+  const canCancelProject=
+    membership?.role==='manager'
+    ||
+    currentUserIsProjectLead
 
 
   const canSeeAllTaskFilter=
@@ -2910,19 +3191,41 @@ function ProjectPage({
       </div>
 
 
-      <span
-        className={
-          'pill '+project.status
-        }
+      <div
+        style={{
+          display:'flex',
+          alignItems:'center',
+          gap:10
+        }}
       >
 
-        {
-          LABEL[project.status]
-          ||
-          project.status
+        <span
+          className={
+            'pill '+project.status
+          }
+        >
+
+          {
+            LABEL[project.status]
+            ||
+            project.status
+          }
+
+        </span>
+
+
+        {canCancelProject &&
+          <button
+            type="button"
+            className="secondary"
+            onClick={onCancelProject}
+            title="Hủy Project tạo nhầm hoặc không còn sử dụng"
+          >
+            Hủy Project
+          </button>
         }
 
-      </span>
+      </div>
 
     </div>
 
@@ -3210,7 +3513,9 @@ function ProjectPage({
 
         updateTask={updateTask}
 
-        members={members}
+        members={
+          assignableTaskMembers||members
+        }
       />
     }
 
