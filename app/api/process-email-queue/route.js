@@ -22,6 +22,19 @@ function getAppUrl() {
   )
 }
 
+function isAuthorized(request) {
+  const authHeader =
+    request.headers.get('authorization') || ''
+
+  const expected =
+    `Bearer ${process.env.CRON_SECRET}`
+
+  return (
+    process.env.CRON_SECRET &&
+    authHeader === expected
+  )
+}
+
 function buildTaskUrl(payload = {}) {
   const appUrl = getAppUrl()
 
@@ -58,7 +71,7 @@ function getSubject(template, payload = {}) {
       return `Bạn được giao task: ${taskName}`
 
     case 'review_requested':
-      return `Task đang chờ bạn review: ${taskName}`
+      return `Task đang chờ review: ${taskName}`
 
     case 'review_approved':
       return `Task đã được duyệt: ${taskName}`
@@ -67,13 +80,13 @@ function getSubject(template, payload = {}) {
       return `Task cần chỉnh sửa: ${taskName}`
 
     case 'mention':
-      return `Bạn được nhắc đến trong FPTU Work`
+      return 'Bạn được nhắc đến trong FPTU Work'
 
     case 'deadline':
       return `Nhắc deadline: ${taskName}`
 
     default:
-      return `Thông báo mới từ FPTU Work`
+      return 'Thông báo mới từ FPTU Work'
   }
 }
 
@@ -90,11 +103,6 @@ function getMessage(template, payload = {}) {
     payload.reviewer_name ||
     ''
 
-  const project =
-    payload.project_name ||
-    payload.project ||
-    ''
-
   switch (template) {
     case 'task_assigned':
       return actor
@@ -108,20 +116,18 @@ function getMessage(template, payload = {}) {
       return `Task "${taskName}" đã được duyệt.`
 
     case 'changes_requested':
-      return `Task "${taskName}" cần được chỉnh sửa thêm.`
+      return `Task "${taskName}" cần chỉnh sửa thêm.`
 
     case 'mention':
       return actor
         ? `${actor} vừa nhắc đến bạn trong một bình luận.`
-        : `Bạn vừa được nhắc đến trong một bình luận.`
+        : 'Bạn vừa được nhắc đến trong một bình luận.'
 
     case 'deadline':
       return `Task "${taskName}" sắp đến hạn.`
 
     default:
-      return project
-        ? `Bạn có thông báo mới trong Project "${project}".`
-        : `Bạn có thông báo mới trên FPTU Work.`
+      return 'Bạn có thông báo mới trên FPTU Work.'
   }
 }
 
@@ -295,7 +301,7 @@ async function processQueue() {
     getAppUrl()
 
   const {
-    data:queue,
+    data: queue,
     error
   } = await supabaseAdmin
     .from('email_queue')
@@ -353,21 +359,17 @@ async function processQueue() {
             body: JSON.stringify({
               to:
                 item.recipient,
-
               subject,
-
               text:
                 getMessage(
                   item.template,
                   payload
                 ),
-
               html:
                 buildHtml(
                   item.template,
                   payload
                 ),
-
               taskUrl
             })
           }
@@ -400,6 +402,22 @@ async function processQueue() {
         })
 
       } else {
+        if (
+          response.status === 429
+        ) {
+          results.push({
+            id: item.id,
+            recipient:
+              item.recipient,
+            success: false,
+            error:
+              result.error ||
+              'Daily email limit reached'
+          })
+
+          break
+        }
+
         await supabaseAdmin
           .from('email_queue')
           .update({
@@ -421,17 +439,6 @@ async function processQueue() {
             result.error ||
             'Send failed'
         })
-
-        /*
-          Nếu chạm limit 200 mail/ngày,
-          dừng luôn để không đánh dấu các mail
-          còn lại là failed.
-        */
-        if (
-          response.status === 429
-        ) {
-          break
-        }
       }
 
     } catch (e) {
@@ -468,12 +475,19 @@ async function processQueue() {
   }
 }
 
+export async function GET(request) {
+  if (!isAuthorized(request)) {
+    return Response.json(
+      {
+        success: false,
+        error: 'Unauthorized'
+      },
+      {
+        status: 401
+      }
+    )
+  }
 
-// =====================================================
-// TEST MANUAL
-// =====================================================
-
-export async function GET() {
   try {
     const result =
       await processQueue()
@@ -497,12 +511,19 @@ export async function GET() {
   }
 }
 
+export async function POST(request) {
+  if (!isAuthorized(request)) {
+    return Response.json(
+      {
+        success: false,
+        error: 'Unauthorized'
+      },
+      {
+        status: 401
+      }
+    )
+  }
 
-// =====================================================
-// AUTOMATION / CRON
-// =====================================================
-
-export async function POST() {
   try {
     const result =
       await processQueue()
