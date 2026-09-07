@@ -228,6 +228,57 @@ export default function Home(){
 
 
   // ===================================================
+  // OPEN MEMBER PERMISSION DRAWER WITH FRESH DATA
+  // ===================================================
+
+  async function openMemberDrawerFresh(item){
+
+    if(!item?.id) return
+
+    const {
+      data:freshMembership,
+      error:membershipError
+    } = await supabase
+      .from('memberships')
+      .select('*')
+      .eq('id',item.id)
+      .single()
+
+    if(membershipError){
+
+      alert(
+        'Không tải được quyền thành viên: '+
+        membershipError.message
+      )
+
+      return
+    }
+
+    const {
+      data:freshProfile
+    } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq(
+        'id',
+        freshMembership.user_id
+      )
+      .maybeSingle()
+
+    const freshTeam=
+      teams.find(
+        t=>t.id===freshMembership.team_id
+      )||null
+
+    setMemberDrawer({
+      ...freshMembership,
+      profiles:freshProfile||item.profiles||null,
+      teams:freshTeam
+    })
+  }
+
+
+  // ===================================================
   // MEMBER DEFAULT FILTER
   // ===================================================
 
@@ -2253,7 +2304,7 @@ export default function Home(){
           members={members}
 
           onOpen={
-            setMemberDrawer
+            openMemberDrawerFresh
           }
 
           onInvite={()=>
@@ -7180,3 +7231,4 @@ function ProjectActivity({
 
   </div>
 }
+
