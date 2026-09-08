@@ -3576,49 +3576,10 @@ function ProjectPage({
     currentUserIsProjectLead
 
 
-  async function saveDescription(){
-
-    const v=
-      prompt(
-        'Mô tả Project',
-        project.description||''
-      )
-
-
-    if(v===null){
-
-      return
+  function openProjectEditorFromDescription(){
+    if(canEditProject){
+      setProjectEditOpen(true)
     }
-
-
-    const {
-      error
-    } = await supabase
-      .from('projects')
-      .update({
-        description:v
-      })
-      .eq(
-        'id',
-        project.id
-      )
-
-
-    if(error){
-
-      alert(
-        'Không lưu được mô tả Project: '+
-        error.message
-      )
-
-      return
-    }
-
-
-    setProject({
-      ...project,
-      description:v
-    })
   }
 
 
@@ -3656,7 +3617,7 @@ function ProjectPage({
 
         <div
           className="desc"
-          onClick={saveDescription}
+          onClick={openProjectEditorFromDescription}
         >
 
           {
@@ -3784,6 +3745,43 @@ function ProjectPage({
 
         </div>
 
+
+        <div className="panel" style={{marginBottom:16}}>
+          <div style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'center',marginBottom:10}}>
+            <h3 style={{margin:0}}>Mô tả Project</h3>
+            {canEditProject && <button className="secondary" onClick={()=>setProjectEditOpen(true)}>✎ Chỉnh sửa</button>}
+          </div>
+          <div style={{whiteSpace:'pre-wrap',lineHeight:1.65,color:project.description?'#273142':'#8a94a6',minHeight:72}}>
+            {project.description||'Chưa có mô tả. Hãy bổ sung mục tiêu, phạm vi, đầu ra và lưu ý quan trọng của Project.'}
+          </div>
+        </div>
+
+        <div className="panel" style={{marginBottom:16}}>
+          <div style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'center',marginBottom:12}}>
+            <div>
+              <h3 style={{margin:'0 0 4px'}}>Links làm việc</h3>
+              <small style={{color:'#8a94a6'}}>Ưu tiên gắn Google Drive/Docs/Sheets, Figma, Canva hoặc URL tài liệu thay vì upload file lớn.</small>
+            </div>
+            {canEditProject && <button className="secondary" onClick={()=>setProjectEditOpen(true)}>Quản lý links</button>}
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:10}}>
+            {[
+              {name:project.primary_link_name||'Link chính',url:project.primary_link_url,main:true},
+              {name:project.link1_name||'Link phụ 1',url:project.link1_url},
+              {name:project.link2_name||'Link phụ 2',url:project.link2_url},
+              {name:project.link3_name||'Link phụ 3',url:project.link3_url}
+            ].map((x,i)=>
+              <div key={i} style={{border:'1px solid #e8ebef',borderRadius:12,padding:12,background:x.main?'#fff8f2':'#fff'}}>
+                <div style={{fontSize:12,color:'#8a94a6',marginBottom:4}}>{x.main?'★ Link chính':'🔗 Link phụ'}</div>
+                <div style={{fontWeight:700,marginBottom:8,wordBreak:'break-word'}}>{x.name}</div>
+                {x.url
+                  ? <a href={x.url} target="_blank" rel="noreferrer" className="secondary" style={{display:'inline-block',textDecoration:'none'}}>Mở link ↗</a>
+                  : <span style={{fontSize:13,color:'#a2a9b3'}}>Chưa gắn link</span>
+                }
+              </div>
+            )}
+          </div>
+        </div>
 
         <div className="overviewGrid">
 
@@ -4019,7 +4017,10 @@ function ProjectPage({
 
 
     {tab==='files' &&
-      <ProjectFiles/>
+      <ProjectFiles
+        project={project}
+        canManage={canEditProject}
+      />
     }
 
 
@@ -7308,21 +7309,44 @@ function ProjectEditDrawer({project,workspaceMembers,membership,onClose,onSaved}
     description:project?.description||'',
     start_at:project?.start_at?String(project.start_at).slice(0,10):'',
     due_at:project?.due_at?String(project.due_at).slice(0,10):'',
-    lead_id:project?.lead_id||''
+    lead_id:project?.lead_id||'',
+    primary_link_name:project?.primary_link_name||'',
+    primary_link_url:project?.primary_link_url||'',
+    link1_name:project?.link1_name||'',
+    link1_url:project?.link1_url||'',
+    link2_name:project?.link2_name||'',
+    link2_url:project?.link2_url||'',
+    link3_name:project?.link3_name||'',
+    link3_url:project?.link3_url||''
   })
   const [saving,setSaving]=useState(false)
   const [error,setError]=useState('')
 
+  function normalizeUrl(v){
+    const x=(v||'').trim()
+    if(!x)return null
+    if(/^https?:\/\//i.test(x))return x
+    return 'https://'+x
+  }
+
   async function save(){
     if(!form.name.trim()){setError('Vui lòng nhập tên Project');return}
     setSaving(true);setError('')
-    const {data,error}=await supabase.rpc('update_project_safe',{
+    const {data,error}=await supabase.rpc('update_project_workspace_safe',{
       p_project_id:project.id,
       p_name:form.name.trim(),
       p_description:form.description.trim()||null,
       p_start_at:form.start_at?new Date(form.start_at+'T00:00:00').toISOString():null,
       p_due_at:form.due_at?new Date(form.due_at+'T23:59:59').toISOString():null,
-      p_lead_id:form.lead_id||null
+      p_lead_id:form.lead_id||null,
+      p_primary_link_name:form.primary_link_name.trim()||null,
+      p_primary_link_url:normalizeUrl(form.primary_link_url),
+      p_link1_name:form.link1_name.trim()||null,
+      p_link1_url:normalizeUrl(form.link1_url),
+      p_link2_name:form.link2_name.trim()||null,
+      p_link2_url:normalizeUrl(form.link2_url),
+      p_link3_name:form.link3_name.trim()||null,
+      p_link3_url:normalizeUrl(form.link3_url)
     })
     setSaving(false)
     if(error){setError(error.message);return}
@@ -7330,14 +7354,32 @@ function ProjectEditDrawer({project,workspaceMembers,membership,onClose,onSaved}
   }
 
   return <div className="drawerWrap" onMouseDown={e=>e.target===e.currentTarget&&onClose()}>
-    <aside className="drawer narrow">
+    <aside className="drawer" style={{maxWidth:760}}>
       <div className="drawerHead"><h2>Sửa Project</h2><button onClick={onClose}>×</button></div>
       <div className="drawerBody">
         <Field label="Tên Project"><input className="fullInput" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></Field>
-        <Field label="Mô tả"><textarea rows="6" value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/></Field>
-        <Field label="Ngày bắt đầu"><input className="fullInput" type="date" value={form.start_at} onChange={e=>setForm({...form,start_at:e.target.value})}/></Field>
-        <Field label="Deadline"><input className="fullInput" type="date" value={form.due_at} onChange={e=>setForm({...form,due_at:e.target.value})}/></Field>
+        <Field label="Mô tả Project"><textarea rows="11" style={{minHeight:220,resize:'vertical'}} value={form.description} onChange={e=>setForm({...form,description:e.target.value})} placeholder="Mục tiêu, phạm vi, đầu ra, cách triển khai, lưu ý quan trọng..."/></Field>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+          <Field label="Ngày bắt đầu"><input className="fullInput" type="date" value={form.start_at} onChange={e=>setForm({...form,start_at:e.target.value})}/></Field>
+          <Field label="Deadline"><input className="fullInput" type="date" value={form.due_at} onChange={e=>setForm({...form,due_at:e.target.value})}/></Field>
+        </div>
         {isManager&&<Field label="Project Lead"><select value={form.lead_id} onChange={e=>setForm({...form,lead_id:e.target.value})}><option value="">—</option>{workspaceMembers.map(m=><option key={m.user_id} value={m.user_id}>{m.profiles?.full_name||m.profiles?.email}</option>)}</select></Field>}
+
+        <div style={{marginTop:10,paddingTop:14,borderTop:'1px solid #eceff3'}}>
+          <h3 style={{margin:'0 0 4px'}}>Links làm việc</h3>
+          <p style={{margin:'0 0 14px',fontSize:13,color:'#7b8491'}}>Link-first: ưu tiên Drive/Docs/Figma/Canva. File lớn nên lưu trên Drive để tiết kiệm dung lượng hệ thống.</p>
+          <div style={{display:'grid',gridTemplateColumns:'minmax(150px,.65fr) minmax(260px,1.35fr)',gap:10}}>
+            <input className="fullInput" placeholder="Tên link chính" value={form.primary_link_name} onChange={e=>setForm({...form,primary_link_name:e.target.value})}/>
+            <input className="fullInput" placeholder="https://..." value={form.primary_link_url} onChange={e=>setForm({...form,primary_link_url:e.target.value})}/>
+            <input className="fullInput" placeholder="Tên link phụ 1" value={form.link1_name} onChange={e=>setForm({...form,link1_name:e.target.value})}/>
+            <input className="fullInput" placeholder="https://..." value={form.link1_url} onChange={e=>setForm({...form,link1_url:e.target.value})}/>
+            <input className="fullInput" placeholder="Tên link phụ 2" value={form.link2_name} onChange={e=>setForm({...form,link2_name:e.target.value})}/>
+            <input className="fullInput" placeholder="https://..." value={form.link2_url} onChange={e=>setForm({...form,link2_url:e.target.value})}/>
+            <input className="fullInput" placeholder="Tên link phụ 3" value={form.link3_name} onChange={e=>setForm({...form,link3_name:e.target.value})}/>
+            <input className="fullInput" placeholder="https://..." value={form.link3_url} onChange={e=>setForm({...form,link3_url:e.target.value})}/>
+          </div>
+        </div>
+
         {error&&<div className="errorBox">{error}</div>}
         <button className="primary full" disabled={saving} onClick={save}>{saving?'Đang lưu...':'Lưu Project'}</button>
       </div>
@@ -8368,22 +8410,105 @@ function InviteDrawer({
 // FILES
 // =====================================================
 
-function ProjectFiles(){
+function ProjectFiles({project,canManage}){
+  const [rows,setRows]=useState([])
+  const [loading,setLoading]=useState(true)
+  const [uploading,setUploading]=useState(false)
+  const inputRef=useRef(null)
+
+  async function load(){
+    if(!project?.id)return
+    setLoading(true)
+    const {data,error}=await supabase
+      .from('project_files')
+      .select('id,project_id,file_name,storage_path,file_size,mime_type,uploaded_by,created_at,profiles:uploaded_by(full_name,email)')
+      .eq('project_id',project.id)
+      .order('created_at',{ascending:false})
+    setLoading(false)
+    if(error){console.error(error);return}
+    setRows(data||[])
+  }
+
+  useEffect(()=>{load()},[project?.id])
+
+  function humanBytes(n){
+    const x=Number(n||0)
+    if(x<1024)return x+' B'
+    if(x<1024*1024)return (x/1024).toFixed(1)+' KB'
+    return (x/1024/1024).toFixed(1)+' MB'
+  }
+
+  async function uploadFile(file){
+    if(!file)return
+    if(file.size>10*1024*1024){
+      alert('File vượt 10 MB. Hãy upload lên Google Drive rồi gắn link vào Project để tiết kiệm dung lượng.')
+      return
+    }
+    setUploading(true)
+    try{
+      const clean=file.name.replace(/[^a-zA-Z0-9._-]+/g,'_')
+      const path=`${project.id}/${Date.now()}-${Math.random().toString(36).slice(2,8)}-${clean}`
+      const {error:upErr}=await supabase.storage.from('project-files').upload(path,file,{upsert:false,contentType:file.type||undefined})
+      if(upErr)throw upErr
+      const {data:{user}}=await supabase.auth.getUser()
+      const {error:metaErr}=await supabase.from('project_files').insert({
+        project_id:project.id,
+        file_name:file.name,
+        storage_path:path,
+        file_size:file.size,
+        mime_type:file.type||null,
+        uploaded_by:user?.id||null
+      })
+      if(metaErr){
+        await supabase.storage.from('project-files').remove([path])
+        throw metaErr
+      }
+      await load()
+    }catch(e){
+      alert('Không upload được file: '+e.message)
+    }finally{
+      setUploading(false)
+      if(inputRef.current)inputRef.current.value=''
+    }
+  }
+
+  async function openFile(row){
+    const {data,error}=await supabase.storage.from('project-files').createSignedUrl(row.storage_path,120)
+    if(error){alert('Không mở được file: '+error.message);return}
+    window.open(data.signedUrl,'_blank','noopener,noreferrer')
+  }
+
+  async function removeFile(row){
+    if(!confirm(`Xóa file "${row.file_name}" khỏi Project?`))return
+    const {error:storageError}=await supabase.storage.from('project-files').remove([row.storage_path])
+    if(storageError){alert('Không xóa được file: '+storageError.message);return}
+    const {error}=await supabase.from('project_files').delete().eq('id',row.id)
+    if(error){alert('Đã xóa file khỏi Storage nhưng không xóa được metadata: '+error.message);return}
+    setRows(v=>v.filter(x=>x.id!==row.id))
+  }
 
   return <div className="panel">
-
-    <h3>
-      Files
-    </h3>
-
-    <p>
-      Khu vực file chung của Project.
-    </p>
-
-    <div className="empty">
-      Chưa có file.
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:12,marginBottom:12}}>
+      <div>
+        <h3 style={{margin:'0 0 4px'}}>Files</h3>
+        <p style={{margin:0,color:'#7b8491'}}>Chỉ upload file cần lưu trực tiếp. Giới hạn 10 MB/file; file lớn nên dùng Google Drive và gắn link ở Overview.</p>
+      </div>
+      {canManage&&<>
+        <input ref={inputRef} type="file" style={{display:'none'}} onChange={e=>uploadFile(e.target.files?.[0])}/>
+        <button className="primary" disabled={uploading} onClick={()=>inputRef.current?.click()}>{uploading?'Đang upload...':'＋ Upload file'}</button>
+      </>}
     </div>
 
+    {loading&&<div className="empty">Đang tải file...</div>}
+    {!loading&&!rows.length&&<div className="empty">Chưa có file. Ưu tiên gắn link Drive/Docs/Figma ở Overview.</div>}
+    {!loading&&rows.map(r=><div key={r.id} style={{display:'grid',gridTemplateColumns:'1fr auto auto',gap:12,alignItems:'center',padding:'12px 0',borderTop:'1px solid #edf0f3'}}>
+      <div style={{minWidth:0}}>
+        <div style={{fontWeight:700,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.file_name}</div>
+        <small style={{color:'#8a94a6'}}>{humanBytes(r.file_size)} · {r.profiles?.full_name||r.profiles?.email||'User'} · {fmtDate(r.created_at)}</small>
+      </div>
+      <button className="secondary" onClick={()=>openFile(r)}>Mở / Tải</button>
+      {canManage&&<button className="secondary" onClick={()=>removeFile(r)}>Xóa</button>}
+    </div>)}
   </div>
 }
 
