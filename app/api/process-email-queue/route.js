@@ -1,548 +1,219 @@
-import { createClient } from '@supabase/supabase-js'
+import {createClient} from '@supabase/supabase-js'
+import webpush from 'web-push'
 
-export const runtime = 'nodejs'
+export const runtime='nodejs'
+export const dynamic='force-dynamic'
 
-function getSupabaseAdmin() {
+function isAuthorized(request){
+  const value=request.headers.get('authorization')||''
+  return value===`Bearer ${process.env.CRON_SECRET}`
+}
+
+function adminClient(){
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY,
     {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false
+      auth:{
+        persistSession:false,
+        autoRefreshToken:false
       }
     }
   )
 }
 
-function getAppUrl() {
-  return (
-    process.env.NEXT_PUBLIC_APP_URL ||
-    'https://fptu-work.vercel.app'
-  )
-}
+function pushUrl(item){
+  const params=new URLSearchParams()
 
-function isAuthorized(request) {
-  const authHeader =
-    request.headers.get('authorization') || ''
-
-  const expected =
-    `Bearer ${process.env.CRON_SECRET}`
-
-  return (
-    process.env.CRON_SECRET &&
-    authHeader === expected
-  )
-}
-
-function buildTaskUrl(payload = {}) {
-  const appUrl = getAppUrl()
-
-  const params = new URLSearchParams()
-
-  if (payload.project_id) {
-    params.set('project', payload.project_id)
+  if(item.project_id){
+    params.set('project',item.project_id)
   }
 
-  if (payload.task_id) {
-    params.set('task', payload.task_id)
+  if(item.task_id){
+    params.set('task',item.task_id)
   }
 
-  if (payload.comment_id) {
-    params.set('comment', payload.comment_id)
+  if(item.comment_id){
+    params.set('comment',item.comment_id)
   }
 
-  const query = params.toString()
-
-  return query
-    ? `${appUrl}/?${query}`
-    : appUrl
+  const query=params.toString()
+  return query?`/?${query}`:'/'
 }
 
-function getSubject(template, payload = {}) {
-  const taskName =
-    payload.task_title ||
-    payload.task_name ||
-    payload.task_code ||
-    'công việc'
-
-  switch (template) {
-    case 'task_assigned':
-      return `Bạn được giao task: ${taskName}`
-
-    case 'review_requested':
-      return `Task đang chờ review: ${taskName}`
-
-    case 'review_approved':
-      return `Task đã được duyệt: ${taskName}`
-
-    case 'changes_requested':
-      return `Task cần chỉnh sửa: ${taskName}`
-
-    case 'mention':
-      return 'Bạn được nhắc đến trong FPTU Work'
-
-    case 'deadline':
-      return `Nhắc deadline: ${taskName}`
-
-    default:
-      return 'Thông báo mới từ FPTU Work'
-  }
-}
-
-function getMessage(template, payload = {}) {
-  const taskName =
-    payload.task_title ||
-    payload.task_name ||
-    payload.task_code ||
-    'công việc'
-
-  const actor =
-    payload.actor_name ||
-    payload.assigner_name ||
-    payload.reviewer_name ||
-    ''
-
-  switch (template) {
-    case 'task_assigned':
-      return actor
-        ? `${actor} vừa giao cho bạn task "${taskName}".`
-        : `Bạn vừa được giao task "${taskName}".`
-
-    case 'review_requested':
-      return `Task "${taskName}" đang chờ bạn review.`
-
-    case 'review_approved':
-      return `Task "${taskName}" đã được duyệt.`
-
-    case 'changes_requested':
-      return `Task "${taskName}" cần chỉnh sửa thêm.`
-
-    case 'mention':
-      return actor
-        ? `${actor} vừa nhắc đến bạn trong một bình luận.`
-        : 'Bạn vừa được nhắc đến trong một bình luận.'
-
-    case 'deadline':
-      return `Task "${taskName}" sắp đến hạn.`
-
-    default:
-      return 'Bạn có thông báo mới trên FPTU Work.'
-  }
-}
-
-function buildHtml(template, payload = {}) {
-  const subject =
-    getSubject(template, payload)
-
-  const message =
-    getMessage(template, payload)
-
-  const taskUrl =
-    buildTaskUrl(payload)
-
-  const projectName =
-    payload.project_name ||
-    payload.project ||
-    ''
-
-  const taskName =
-    payload.task_title ||
-    payload.task_name ||
-    payload.task_code ||
-    ''
-
-  const deadline =
-    payload.deadline ||
-    payload.due_at ||
-    ''
-
-  return `
-    <div style="
-      font-family:Arial,sans-serif;
-      max-width:640px;
-      margin:0 auto;
-      padding:28px;
-      color:#1f2937;
-      background:#ffffff;
-    ">
-
-      <div style="
-        display:inline-block;
-        background:#f47721;
-        color:#ffffff;
-        width:44px;
-        height:44px;
-        line-height:44px;
-        text-align:center;
-        border-radius:10px;
-        font-size:22px;
-        font-weight:700;
-      ">
-        F
-      </div>
-
-      <div style="
-        font-size:20px;
-        font-weight:700;
-        margin-top:10px;
-      ">
-        FPTU Work
-      </div>
-
-      <div style="
-        color:#6b7280;
-        font-size:13px;
-        margin-bottom:28px;
-      ">
-        Project Workspace
-      </div>
-
-      <h2 style="
-        font-size:21px;
-        margin:0 0 14px;
-      ">
-        ${subject}
-      </h2>
-
-      <p style="
-        font-size:15px;
-        line-height:1.6;
-      ">
-        ${message}
-      </p>
-
-      ${
-        projectName
-          ? `
-            <div style="
-              margin-top:18px;
-              padding:14px;
-              background:#f9fafb;
-              border-radius:8px;
-            ">
-              <b>Project:</b>
-              ${projectName}
-            </div>
-          `
-          : ''
-      }
-
-      ${
-        taskName
-          ? `
-            <div style="
-              margin-top:8px;
-              padding:14px;
-              background:#f9fafb;
-              border-radius:8px;
-            ">
-              <b>Task:</b>
-              ${taskName}
-            </div>
-          `
-          : ''
-      }
-
-      ${
-        deadline
-          ? `
-            <div style="
-              margin-top:8px;
-              padding:14px;
-              background:#f9fafb;
-              border-radius:8px;
-            ">
-              <b>Deadline:</b>
-              ${deadline}
-            </div>
-          `
-          : ''
-      }
-
-      <div style="
-        margin-top:24px;
-      ">
-        <a
-          href="${taskUrl}"
-          style="
-            display:inline-block;
-            background:#f47721;
-            color:#ffffff;
-            text-decoration:none;
-            padding:12px 20px;
-            border-radius:8px;
-            font-weight:600;
-          "
-        >
-          Mở task
-        </a>
-      </div>
-
-      <div style="
-        margin-top:28px;
-        padding-top:16px;
-        border-top:1px solid #e5e7eb;
-        color:#9ca3af;
-        font-size:12px;
-      ">
-        Email tự động từ FPTU Work
-      </div>
-
-    </div>
-  `
-}
-
-async function processQueue() {
-  const supabaseAdmin =
-    getSupabaseAdmin()
-
-  const appUrl =
-    getAppUrl()
-
-  const {
-    data: queue,
-    error
-  } = await supabaseAdmin
-    .from('email_queue')
-    .select('*')
-    .eq('status', 'pending')
-    .order('created_at', {
-      ascending: true
-    })
-    .limit(20)
-
-  if (error) {
-    throw new Error(
-      `Không đọc được email_queue: ${error.message}`
+async function processQueue(request){
+  if(!isAuthorized(request)){
+    return Response.json(
+      {error:'Unauthorized'},
+      {status:401}
     )
   }
 
-  if (!queue?.length) {
-    return {
-      success: true,
-      processed: 0,
-      sent: 0,
-      failed: 0,
-      message: 'Không có email pending'
-    }
+  const publicKey=process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+  const privateKey=process.env.VAPID_PRIVATE_KEY
+  const subject=process.env.VAPID_SUBJECT||'mailto:daihoc.hcm@fpt.edu.vn'
+
+  if(!publicKey||!privateKey){
+    return Response.json(
+      {error:'Missing VAPID keys'},
+      {status:500}
+    )
   }
 
-  let sent = 0
-  let failed = 0
+  webpush.setVapidDetails(
+    subject,
+    publicKey,
+    privateKey
+  )
 
-  const results = []
+  const supabase=adminClient()
 
-  for (const item of queue) {
-    try {
-      const payload =
-        item.payload || {}
+  const {data:queue,error:queueError}=await supabase
+    .from('push_queue')
+    .select('*')
+    .eq('status','pending')
+    .order('created_at',{ascending:true})
+    .limit(50)
 
-      const subject =
-        getSubject(
-          item.template,
-          payload
-        )
+  if(queueError){
+    throw queueError
+  }
 
-      const taskUrl =
-        buildTaskUrl(payload)
+  let sent=0
+  let failed=0
+  let skipped=0
 
-      const response =
-        await fetch(
-          `${appUrl}/api/send-email`,
+  for(const item of queue||[]){
+    const {data:subscriptions,error:subError}=await supabase
+      .from('push_subscriptions')
+      .select('*')
+      .eq('user_id',item.user_id)
+      .is('disabled_at',null)
+
+    if(subError){
+      await supabase
+        .from('push_queue')
+        .update({
+          status:'failed',
+          attempts:(item.attempts||0)+1,
+          last_error:subError.message
+        })
+        .eq('id',item.id)
+
+      failed+=1
+      continue
+    }
+
+    if(!subscriptions?.length){
+      await supabase
+        .from('push_queue')
+        .update({
+          status:'skipped',
+          attempts:(item.attempts||0)+1,
+          last_error:'No active push subscription'
+        })
+        .eq('id',item.id)
+
+      skipped+=1
+      continue
+    }
+
+    const payload=JSON.stringify({
+      title:item.title||'FPTU MKT Work',
+      body:item.body||'Bạn có cập nhật mới.',
+      url:pushUrl(item),
+      tag:`fptu-work-${item.notification_id||item.id}`,
+      type:item.type||'notification'
+    })
+
+    let delivered=0
+    let lastError=null
+
+    for(const subscription of subscriptions){
+      try{
+        await webpush.sendNotification(
           {
-            method: 'POST',
-            headers: {
-              'Content-Type':
-                'application/json'
-            },
-            body: JSON.stringify({
-              to:
-                item.recipient,
-              subject,
-              text:
-                getMessage(
-                  item.template,
-                  payload
-                ),
-              html:
-                buildHtml(
-                  item.template,
-                  payload
-                ),
-              taskUrl
-            })
+            endpoint:subscription.endpoint,
+            keys:{
+              p256dh:subscription.p256dh,
+              auth:subscription.auth
+            }
+          },
+          payload,
+          {
+            TTL:60*60*24
           }
         )
 
-      const result =
-        await response.json()
+        delivered+=1
 
-      if (
-        response.ok &&
-        result.success
-      ) {
-        await supabaseAdmin
-          .from('email_queue')
-          .update({
-            status: 'sent'
-          })
-          .eq(
-            'id',
-            item.id
-          )
+      }catch(error){
+        lastError=error?.message||'Push send failed'
 
-        sent++
-
-        results.push({
-          id: item.id,
-          recipient:
-            item.recipient,
-          success: true
-        })
-
-      } else {
-        if (
-          response.status === 429
-        ) {
-          results.push({
-            id: item.id,
-            recipient:
-              item.recipient,
-            success: false,
-            error:
-              result.error ||
-              'Daily email limit reached'
-          })
-
-          break
+        if(
+          error?.statusCode===404
+          ||
+          error?.statusCode===410
+        ){
+          await supabase
+            .from('push_subscriptions')
+            .update({
+              disabled_at:new Date().toISOString(),
+              updated_at:new Date().toISOString()
+            })
+            .eq('id',subscription.id)
         }
-
-        await supabaseAdmin
-          .from('email_queue')
-          .update({
-            status: 'failed'
-          })
-          .eq(
-            'id',
-            item.id
-          )
-
-        failed++
-
-        results.push({
-          id: item.id,
-          recipient:
-            item.recipient,
-          success: false,
-          error:
-            result.error ||
-            'Send failed'
-        })
       }
+    }
 
-    } catch (e) {
-      await supabaseAdmin
-        .from('email_queue')
+    if(delivered>0){
+      await supabase
+        .from('push_queue')
         .update({
-          status: 'failed'
+          status:'sent',
+          attempts:(item.attempts||0)+1,
+          last_error:null,
+          sent_at:new Date().toISOString()
         })
-        .eq(
-          'id',
-          item.id
-        )
+        .eq('id',item.id)
 
-      failed++
+      sent+=1
 
-      results.push({
-        id: item.id,
-        recipient:
-          item.recipient,
-        success: false,
-        error:
-          e.message
-      })
+    }else{
+      await supabase
+        .from('push_queue')
+        .update({
+          status:'failed',
+          attempts:(item.attempts||0)+1,
+          last_error:lastError||'No push delivered'
+        })
+        .eq('id',item.id)
+
+      failed+=1
     }
   }
 
-  return {
-    success: true,
-    processed:
-      sent + failed,
+  return Response.json({
+    ok:true,
+    processed:(queue||[]).length,
     sent,
     failed,
-    results
-  }
+    skipped
+  })
 }
 
-export async function GET(request) {
-  if (!isAuthorized(request)) {
+export async function GET(request){
+  try{
+    return await processQueue(request)
+  }catch(error){
+    console.error('push queue error',error)
     return Response.json(
-      {
-        success: false,
-        error: 'Unauthorized'
-      },
-      {
-        status: 401
-      }
-    )
-  }
-
-  try {
-    const result =
-      await processQueue()
-
-    return Response.json(
-      result
-    )
-
-  } catch (error) {
-    return Response.json(
-      {
-        success: false,
-        error:
-          error?.message ||
-          'Process email queue failed'
-      },
-      {
-        status: 500
-      }
+      {error:error.message||'Push queue failed'},
+      {status:500}
     )
   }
 }
 
-export async function POST(request) {
-  if (!isAuthorized(request)) {
-    return Response.json(
-      {
-        success: false,
-        error: 'Unauthorized'
-      },
-      {
-        status: 401
-      }
-    )
-  }
-
-  try {
-    const result =
-      await processQueue()
-
-    return Response.json(
-      result
-    )
-
-  } catch (error) {
-    return Response.json(
-      {
-        success: false,
-        error:
-          error?.message ||
-          'Process email queue failed'
-      },
-      {
-        status: 500
-      }
-    )
-  }
+export async function POST(request){
+  return GET(request)
 }
