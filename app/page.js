@@ -138,6 +138,8 @@ export default function Home(){
   const [focusCommentId,setFocusCommentId]=useState(null)
 
   const [memberDrawer,setMemberDrawer]=useState(null)
+  const [profileEditOpen,setProfileEditOpen]=useState(false)
+  const [teamEdit,setTeamEdit]=useState(null)
 
   const [projectCreateOpen,setProjectCreateOpen]=useState(false)
   const [inviteOpen,setInviteOpen]=useState(false)
@@ -2710,9 +2712,14 @@ export default function Home(){
 
       <div className="userMini">
 
-        <Avatar
-          p={profile}
-        />
+        <button
+          type="button"
+          className="avatarButton"
+          title="Chỉnh sửa hồ sơ"
+          onClick={()=>setProfileEditOpen(true)}
+        >
+          <Avatar p={profile}/>
+        </button>
 
         <div>
 
@@ -2851,9 +2858,14 @@ export default function Home(){
           </button>
 
 
-          <Avatar
-            p={profile}
-          />
+          <button
+            type="button"
+            className="avatarButton"
+            title="Chỉnh sửa hồ sơ"
+            onClick={()=>setProfileEditOpen(true)}
+          >
+            <Avatar p={profile}/>
+          </button>
 
         </div>
 
@@ -2967,6 +2979,8 @@ export default function Home(){
         <Teams
           teams={teams}
           projects={projects}
+          membership={membership}
+          currentUserId={session.user.id}
 
           canCreate={
             canManageWorkspace(
@@ -2977,6 +2991,8 @@ export default function Home(){
           onCreate={()=>
             setTeamCreateOpen(true)
           }
+
+          onEdit={setTeamEdit}
         />
       }
 
@@ -3057,6 +3073,36 @@ export default function Home(){
       />
     }
 
+
+
+
+    {profileEditOpen &&
+      <ProfileEditDrawer
+        profile={profile}
+        onClose={()=>setProfileEditOpen(false)}
+        onSaved={async updated=>{
+          setProfile(updated)
+          setProfileEditOpen(false)
+          showToast('Đã cập nhật hồ sơ')
+        }}
+      />
+    }
+
+
+    {teamEdit &&
+      <TeamEditDrawer
+        team={teamEdit}
+        members={members}
+        membership={membership}
+        onClose={()=>setTeamEdit(null)}
+        onSaved={async updated=>{
+          setTeams(prev=>prev.map(t=>t.id===updated.id ? {...t,...updated} : t))
+          setTeamEdit(null)
+          await bootstrap(session.user)
+          showToast('Đã cập nhật Team')
+        }}
+      />
+    }
 
     {projectCreateOpen &&
       <ProjectCreateDrawer
@@ -3486,6 +3532,8 @@ function ProjectPage({
   const [projectMemberEdit,setProjectMemberEdit]=
     useState(null)
 
+  const [projectEditOpen,setProjectEditOpen]=useState(false)
+
 
   const canManageProjectMembers=
     membership?.role==='manager'
@@ -3500,6 +3548,8 @@ function ProjectPage({
     membership?.role==='manager'
     ||
     currentUserIsProjectLead
+
+  const canEditProject=canCancelProject
 
 
   const canSeeAllTaskFilter=
@@ -3626,6 +3676,16 @@ function ProjectPage({
 
         </span>
 
+
+        {canEditProject &&
+          <button
+            type="button"
+            className="secondary"
+            onClick={()=>setProjectEditOpen(true)}
+          >
+            ✎ Sửa Project
+          </button>
+        }
 
         {canCancelProject &&
           <button
@@ -3974,6 +4034,21 @@ function ProjectPage({
 
       </div>
     }
+
+  
+
+  {projectEditOpen &&
+    <ProjectEditDrawer
+      project={project}
+      workspaceMembers={workspaceMembers}
+      membership={membership}
+      onClose={()=>setProjectEditOpen(false)}
+      onSaved={updated=>{
+        setProject({...project,...updated})
+        setProjectEditOpen(false)
+      }}
+    />
+  }
 
   </section>
 }
@@ -5785,8 +5860,11 @@ function MyTasks({
 function Teams({
   teams,
   projects,
+  membership,
+  currentUserId,
   canCreate,
-  onCreate
+  onCreate,
+  onEdit
 }){
 
   return <section className="page">
@@ -5837,9 +5915,21 @@ function Teams({
             </div>
 
 
-            <h3>
-              {t.name}
-            </h3>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10}}>
+              <h3 style={{margin:0}}>
+                {t.name}
+              </h3>
+
+              {(membership?.role==='manager' || (membership?.role==='team_lead' && t.lead_id===currentUserId)) &&
+                <button
+                  type="button"
+                  className="secondary compactBtn"
+                  onClick={()=>onEdit?.(t)}
+                >
+                  ✎ Sửa
+                </button>
+              }
+            </div>
 
 
             <p>
@@ -6996,6 +7086,156 @@ function NotificationPanel({
 
     </div>
 
+  </div>
+}
+
+
+
+
+// =====================================================
+// PROFILE EDIT
+// =====================================================
+
+function ProfileEditDrawer({profile,onClose,onSaved}){
+  const [form,setForm]=useState({
+    full_name:profile?.full_name||'',
+    avatar_url:profile?.avatar_url||'',
+    birth_date:profile?.birth_date||''
+  })
+  const [saving,setSaving]=useState(false)
+  const [error,setError]=useState('')
+
+  async function save(){
+    if(!form.full_name.trim()){
+      setError('Vui lòng nhập tên hiển thị')
+      return
+    }
+    setSaving(true); setError('')
+    const {data,error}=await supabase.rpc('update_my_profile_safe',{
+      p_full_name:form.full_name.trim(),
+      p_avatar_url:form.avatar_url.trim()||null,
+      p_birth_date:form.birth_date||null
+    })
+    setSaving(false)
+    if(error){ setError(error.message); return }
+    onSaved?.(data)
+  }
+
+  return <div className="drawerWrap" onMouseDown={e=>e.target===e.currentTarget&&onClose()}>
+    <aside className="drawer narrow">
+      <div className="drawerHead"><h2>Chỉnh sửa hồ sơ</h2><button onClick={onClose}>×</button></div>
+      <div className="drawerBody">
+        <div className="memberHero"><Avatar p={{...profile,...form}} big/></div>
+        <Field label="Tên hiển thị"><input className="fullInput" value={form.full_name} onChange={e=>setForm({...form,full_name:e.target.value})}/></Field>
+        <Field label="Ảnh đại diện (URL)"><input className="fullInput" placeholder="https://..." value={form.avatar_url} onChange={e=>setForm({...form,avatar_url:e.target.value})}/></Field>
+        <Field label="Ngày sinh"><input className="fullInput" type="date" value={form.birth_date} onChange={e=>setForm({...form,birth_date:e.target.value})}/></Field>
+        <Field label="Email đăng nhập"><input className="fullInput" value={profile?.email||''} disabled/></Field>
+        {error&&<div className="errorBox">{error}</div>}
+        <button className="primary full" disabled={saving} onClick={save}>{saving?'Đang lưu...':'Lưu hồ sơ'}</button>
+      </div>
+    </aside>
+  </div>
+}
+
+
+// =====================================================
+// TEAM EDIT
+// =====================================================
+
+function TeamEditDrawer({team,members,membership,onClose,onSaved}){
+  const isManager=membership?.role==='manager'
+  const [form,setForm]=useState({
+    name:team?.name||'',
+    code:team?.code||'',
+    description:team?.description||'',
+    lead_id:team?.lead_id||''
+  })
+  const [saving,setSaving]=useState(false)
+  const [error,setError]=useState('')
+
+  async function save(){
+    if(!form.name.trim()){setError('Vui lòng nhập tên Team');return}
+    setSaving(true);setError('')
+    const {error}=await supabase.rpc('update_team_safe',{
+      p_team_id:team.id,
+      p_name:form.name.trim(),
+      p_code:form.code.trim().toUpperCase(),
+      p_description:form.description.trim()||null,
+      p_lead_id:form.lead_id||null
+    })
+    setSaving(false)
+    if(error){setError(error.message);return}
+    const lead=members.find(m=>m.user_id===form.lead_id)?.profiles||team.lead||null
+    onSaved?.({...team,...form,lead_id:form.lead_id||null,lead})
+  }
+
+  return <div className="drawerWrap" onMouseDown={e=>e.target===e.currentTarget&&onClose()}>
+    <aside className="drawer narrow">
+      <div className="drawerHead"><h2>Sửa Team</h2><button onClick={onClose}>×</button></div>
+      <div className="drawerBody">
+        <Field label="Tên Team"><input className="fullInput" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></Field>
+        <Field label="Mã Team"><input className="fullInput" value={form.code} disabled={!isManager} onChange={e=>setForm({...form,code:e.target.value})}/></Field>
+        <Field label="Mô tả"><textarea rows="5" value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/></Field>
+        <Field label="Team Lead">
+          <select value={form.lead_id} disabled={!isManager} onChange={e=>setForm({...form,lead_id:e.target.value})}>
+            <option value="">— Chưa gán —</option>
+            {members.map(m=><option key={m.user_id} value={m.user_id}>{m.profiles?.full_name||m.profiles?.email}</option>)}
+          </select>
+        </Field>
+        {!isManager&&<small>Team Lead có thể sửa tên và mô tả Team. Chỉ Trưởng phòng được đổi mã hoặc Team Lead.</small>}
+        {error&&<div className="errorBox">{error}</div>}
+        <button className="primary full" disabled={saving} onClick={save}>{saving?'Đang lưu...':'Lưu Team'}</button>
+      </div>
+    </aside>
+  </div>
+}
+
+
+// =====================================================
+// PROJECT EDIT
+// =====================================================
+
+function ProjectEditDrawer({project,workspaceMembers,membership,onClose,onSaved}){
+  const isManager=membership?.role==='manager'
+  const [form,setForm]=useState({
+    name:project?.name||'',
+    description:project?.description||'',
+    start_at:project?.start_at?String(project.start_at).slice(0,10):'',
+    due_at:project?.due_at?String(project.due_at).slice(0,10):'',
+    lead_id:project?.lead_id||''
+  })
+  const [saving,setSaving]=useState(false)
+  const [error,setError]=useState('')
+
+  async function save(){
+    if(!form.name.trim()){setError('Vui lòng nhập tên Project');return}
+    setSaving(true);setError('')
+    const {data,error}=await supabase.rpc('update_project_safe',{
+      p_project_id:project.id,
+      p_name:form.name.trim(),
+      p_description:form.description.trim()||null,
+      p_start_at:form.start_at?new Date(form.start_at+'T00:00:00').toISOString():null,
+      p_due_at:form.due_at?new Date(form.due_at+'T23:59:59').toISOString():null,
+      p_lead_id:form.lead_id||null
+    })
+    setSaving(false)
+    if(error){setError(error.message);return}
+    onSaved?.(data||{...project,...form})
+  }
+
+  return <div className="drawerWrap" onMouseDown={e=>e.target===e.currentTarget&&onClose()}>
+    <aside className="drawer narrow">
+      <div className="drawerHead"><h2>Sửa Project</h2><button onClick={onClose}>×</button></div>
+      <div className="drawerBody">
+        <Field label="Tên Project"><input className="fullInput" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></Field>
+        <Field label="Mô tả"><textarea rows="6" value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/></Field>
+        <Field label="Ngày bắt đầu"><input className="fullInput" type="date" value={form.start_at} onChange={e=>setForm({...form,start_at:e.target.value})}/></Field>
+        <Field label="Deadline"><input className="fullInput" type="date" value={form.due_at} onChange={e=>setForm({...form,due_at:e.target.value})}/></Field>
+        {isManager&&<Field label="Project Lead"><select value={form.lead_id} onChange={e=>setForm({...form,lead_id:e.target.value})}><option value="">—</option>{workspaceMembers.map(m=><option key={m.user_id} value={m.user_id}>{m.profiles?.full_name||m.profiles?.email}</option>)}</select></Field>}
+        {error&&<div className="errorBox">{error}</div>}
+        <button className="primary full" disabled={saving} onClick={save}>{saving?'Đang lưu...':'Lưu Project'}</button>
+      </div>
+    </aside>
   </div>
 }
 
