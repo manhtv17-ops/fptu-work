@@ -3035,6 +3035,17 @@ export default function Home(){
         <Reports
           projects={projects}
           members={members}
+          teams={teams}
+          membership={membership}
+          onOpenProject={p=>openProject(p,{tab:'overview'})}
+          onOpenTask={async(task)=>{
+            const p=projectMapSafe(projects,task?.project_id,task?.project)
+            if(!p) return
+            const opened=await openProject(p,{tab:'list'})
+            const targetTask=opened?.tasks?.find(x=>x.id===task.id)||task
+            setFocusCommentId(null)
+            setTaskDrawer(targetTask)
+          }}
         />
       }
 
@@ -4313,48 +4324,14 @@ function TaskList({
           </button>
 
 
-          <select
-            value={
-              t.assignee_id||''
-            }
-
-            onChange={e=>
-              updateTask(
-                t.id,
-                {
-                  assignee_id:
-                    e.target.value
-                    ||
-                    null
-                }
-              )
-            }
-          >
-
-            <option value="">
-              —
-            </option>
-
-
-            {members.map(
-              m=>
-                <option
-                  key={m.user_id}
-                  value={m.user_id}
-                >
-
-                  {
-                    m.profiles
-                      ?.full_name
-                    ||
-                    m.profiles
-                      ?.email
-                  }
-
-                </option>
-            )}
-
-          </select>
+          <SmartMemberPicker
+            members={members}
+            value={t.assignee_id||''}
+            onChange={id=>updateTask(t.id,{assignee_id:id||null})}
+            placeholder="Tìm người assign..."
+            emptyLabel="—"
+            compact
+          />
 
 
           <input
@@ -4859,7 +4836,7 @@ function TaskDrawer({
         m=>{
 
           const text=
-            `${m.profiles?.full_name||''} ${m.profiles?.email||''}`
+            `${m.profiles?.full_name||''} ${m.profiles?.email||''} ${m.teams?.name||''} ${m.role||''} ${m.role_in_project||''}`
               .toLowerCase()
 
 
@@ -5110,48 +5087,13 @@ function TaskDrawer({
 
           <Field label="Assignee">
 
-            <select
-              value={
-                task.assignee_id||''
-              }
-
-              onChange={e=>
-                onUpdate(
-                  task.id,
-                  {
-                    assignee_id:
-                      e.target.value
-                      ||
-                      null
-                  }
-                )
-              }
-            >
-
-              <option value="">
-                —
-              </option>
-
-
-              {projectMembers.map(
-                m=>
-                  <option
-                    key={m.user_id}
-                    value={m.user_id}
-                  >
-
-                    {
-                      m.profiles
-                        ?.full_name
-                      ||
-                      m.profiles
-                        ?.email
-                    }
-
-                  </option>
-              )}
-
-            </select>
+            <SmartMemberPicker
+              members={projectMembers}
+              value={task.assignee_id||''}
+              onChange={id=>onUpdate(task.id,{assignee_id:id||null})}
+              placeholder="Gõ tên hoặc email để assign..."
+              emptyLabel="— Chưa assign —"
+            />
 
           </Field>
 
@@ -5618,6 +5560,122 @@ function TaskDrawer({
 
 
 // =====================================================
+// SMART MEMBER PICKER v18.7 (includes v18.6)
+// =====================================================
+
+function SmartMemberPicker({
+  members=[],
+  value='',
+  onChange,
+  placeholder='Gõ tên, email, team hoặc role...',
+  disabled=false,
+  compact=false,
+  emptyLabel='— Chưa gán —',
+  currentTeamId=null
+}){
+  const [open,setOpen]=useState(false)
+  const [query,setQuery]=useState('')
+  const [activeIndex,setActiveIndex]=useState(0)
+  const wrapRef=useRef(null)
+
+  const selected=members.find(m=>m.user_id===value)
+  const roleLabel=(role)=>role==='manager'?'Trưởng phòng':role==='team_lead'?'Team Lead':role==='lead'?'Project Lead':role==='viewer'?'Viewer':'Member'
+  const memberText=(m)=>[
+    m.profiles?.full_name,
+    m.profiles?.email,
+    m.teams?.name,
+    m.team?.name,
+    m.role,
+    m.role_in_project,
+    roleLabel(m.role||m.role_in_project)
+  ].filter(Boolean).join(' ').toLowerCase()
+
+  const q=query.trim().toLowerCase()
+  const filtered=[...members]
+    .filter(m=>!q || memberText(m).includes(q))
+    .sort((a,b)=>{
+      const aSame=Number(!!currentTeamId && (a.team_id===currentTeamId || a.teams?.id===currentTeamId))
+      const bSame=Number(!!currentTeamId && (b.team_id===currentTeamId || b.teams?.id===currentTeamId))
+      if(aSame!==bSame) return bSame-aSame
+      return String(a.profiles?.full_name||a.profiles?.email||'').localeCompare(String(b.profiles?.full_name||b.profiles?.email||''),'vi')
+    })
+    .slice(0,10)
+
+  useEffect(()=>{
+    function close(e){
+      if(wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false)
+    }
+    document.addEventListener('mousedown',close)
+    return ()=>document.removeEventListener('mousedown',close)
+  },[])
+
+  function choose(id){
+    onChange?.(id||'')
+    setOpen(false)
+    setQuery('')
+    setActiveIndex(0)
+  }
+
+  function keyDown(e){
+    if(!open && ['ArrowDown','Enter'].includes(e.key)){
+      setOpen(true); return
+    }
+    if(e.key==='ArrowDown'){
+      e.preventDefault(); setActiveIndex(i=>Math.min(i+1,Math.max(0,filtered.length-1)))
+    }else if(e.key==='ArrowUp'){
+      e.preventDefault(); setActiveIndex(i=>Math.max(0,i-1))
+    }else if(e.key==='Enter' && open){
+      e.preventDefault(); if(filtered[activeIndex]) choose(filtered[activeIndex].user_id)
+    }else if(e.key==='Escape') setOpen(false)
+  }
+
+  const selectedName=selected?.profiles?.full_name||selected?.profiles?.email||''
+
+  return <div ref={wrapRef} style={{position:'relative',width:'100%'}}>
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={()=>{setOpen(v=>!v);setQuery('');setActiveIndex(0)}}
+      style={{
+        width:'100%', minHeight:compact?34:42, padding:compact?'6px 9px':'9px 11px',
+        border:'1px solid #dfe3e8',borderRadius:9,background:disabled?'#f5f6f7':'#fff',
+        display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,textAlign:'left',cursor:disabled?'not-allowed':'pointer'
+      }}
+    >
+      <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{selectedName||emptyLabel}</span>
+      <span style={{color:'#89919b'}}>⌄</span>
+    </button>
+
+    {open && !disabled && <div style={{
+      position:'absolute',zIndex:1200,top:'calc(100% + 5px)',left:0,right:0,
+      background:'#fff',border:'1px solid #dfe3e8',borderRadius:11,boxShadow:'0 12px 32px rgba(15,23,42,.16)',overflow:'hidden'
+    }}>
+      <div style={{padding:8,borderBottom:'1px solid #eef0f2'}}>
+        <input
+          autoFocus value={query} onChange={e=>{setQuery(e.target.value);setActiveIndex(0)}} onKeyDown={keyDown}
+          placeholder={placeholder}
+          style={{width:'100%',border:'1px solid #e2e5e9',borderRadius:8,padding:'9px 10px',outline:'none'}}
+        />
+      </div>
+      <div style={{maxHeight:320,overflowY:'auto',padding:5}}>
+        {emptyLabel && <button type="button" onClick={()=>choose('')} style={{width:'100%',border:0,background:'transparent',textAlign:'left',padding:'9px 10px',borderRadius:8,cursor:'pointer',color:'#6b7280'}}>{emptyLabel}</button>}
+        {filtered.length ? filtered.map((m,i)=>{
+          const name=m.profiles?.full_name||m.profiles?.email||'Member'
+          const secondary=[roleLabel(m.role||m.role_in_project),m.teams?.name||m.team?.name,m.profiles?.email!==name?m.profiles?.email:null].filter(Boolean).join(' · ')
+          return <button
+            type="button" key={m.user_id} onMouseEnter={()=>setActiveIndex(i)} onClick={()=>choose(m.user_id)}
+            style={{width:'100%',border:0,background:i===activeIndex?'#fff3e8':'#fff',textAlign:'left',padding:'9px 10px',borderRadius:8,cursor:'pointer',display:'flex',gap:9,alignItems:'center'}}
+          >
+            <Avatar p={m.profiles}/>
+            <span style={{minWidth:0}}><b style={{display:'block',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{name}</b><small style={{display:'block',color:'#7b8491',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{secondary}</small></span>
+          </button>
+        }):<div style={{padding:14,color:'#7b8491',textAlign:'center'}}>Không tìm thấy thành viên phù hợp.</div>}
+      </div>
+    </div>}
+  </div>
+}
+
+// =====================================================
 // FIELD
 // =====================================================
 
@@ -5637,6 +5695,11 @@ function Field({
   </label>
 }
 
+
+function projectMapSafe(projects,id,fallback){
+  if(fallback?.id) return (projects||[]).find(p=>p.id===fallback.id)||fallback
+  return (projects||[]).find(p=>p.id===id)||fallback||null
+}
 
 // =====================================================
 // HOME
@@ -6200,42 +6263,176 @@ function Members({
 
 function Reports({
   projects,
-  members
+  members,
+  teams,
+  membership,
+  onOpenTask,
+  onOpenProject
 }){
+  const [rows,setRows]=useState([])
+  const [loading,setLoading]=useState(true)
+  const [tab,setTab]=useState('overview')
+  const [period,setPeriod]=useState('all')
+  const [projectFilter,setProjectFilter]=useState('all')
+  const [teamFilter,setTeamFilter]=useState('all')
+  const [memberFilter,setMemberFilter]=useState('all')
+  const [statusFilter,setStatusFilter]=useState('all')
+  const [quick,setQuick]=useState('all')
+  const [searchText,setSearchText]=useState('')
+
+  useEffect(()=>{
+    let cancelled=false
+    async function load(){
+      const ids=(projects||[]).map(p=>p.id)
+      if(!ids.length){setRows([]);setLoading(false);return}
+      setLoading(true)
+      let all=[]
+      let from=0
+      const size=1000
+      while(true){
+        const {data,error}=await supabase
+          .from('tasks')
+          .select('*, profiles!tasks_assignee_id_fkey(full_name,avatar_url,email), project:projects(id,name,code,team_id,lead_id,due_at,status,updated_at)')
+          .in('project_id',ids)
+          .is('archived_at',null)
+          .order('created_at',{ascending:false})
+          .range(from,from+size-1)
+        if(error){console.error(error);break}
+        all=all.concat(data||[])
+        if(!data || data.length<size) break
+        from+=size
+        if(from>=10000) break
+      }
+      if(!cancelled){setRows(all);setLoading(false)}
+    }
+    load()
+    return ()=>{cancelled=true}
+  },[JSON.stringify((projects||[]).map(p=>p.id))])
+
+  const now=Date.now()
+  const dayMs=86400000
+  const isDone=t=>t.status==='done'
+  const isActive=t=>['todo','in_progress','review'].includes(t.status)
+  const isOverdue=t=>!!t.due_at && !isDone(t) && new Date(t.due_at).getTime()<now
+  const isHigh=t=>['urgent','high'].includes(t.priority) && !isDone(t)
+  const isOnTime=t=>isDone(t)&&t.due_at&&t.completed_at&&new Date(t.completed_at).getTime()<=new Date(t.due_at).getTime()
+  const isLateDone=t=>isDone(t)&&t.due_at&&t.completed_at&&new Date(t.completed_at).getTime()>new Date(t.due_at).getTime()
+  const periodDays={d7:7,d30:30,d90:90}[period]
+  const cutoff=periodDays?now-periodDays*dayMs:null
+  const inPeriod=t=>!cutoff || !isDone(t) || new Date(t.completed_at||t.updated_at||t.created_at||0).getTime()>=cutoff
+
+  const projectMap=new Map((projects||[]).map(p=>[p.id,p]))
+  const memberMap=new Map((members||[]).map(m=>[m.user_id,m]))
+  const q=searchText.trim().toLowerCase()
+
+  const filtered=rows
+    .filter(inPeriod)
+    .filter(t=>projectFilter==='all'||t.project_id===projectFilter)
+    .filter(t=>memberFilter==='all'||t.assignee_id===memberFilter)
+    .filter(t=>statusFilter==='all'||t.status===statusFilter)
+    .filter(t=>teamFilter==='all'||(projectMap.get(t.project_id)?.team_id||t.project?.team_id)===teamFilter)
+    .filter(t=>quick==='all'||(quick==='overdue'&&isOverdue(t))||(quick==='review'&&t.status==='review')||(quick==='priority'&&isHigh(t))||(quick==='unassigned'&&!t.assignee_id))
+    .filter(t=>!q||[t.title,t.code,t.project?.name,t.project?.code,t.profiles?.full_name,t.profiles?.email].filter(Boolean).some(v=>String(v).toLowerCase().includes(q)))
+
+  function calcOnTime(list){
+    const measured=list.filter(t=>isOnTime(t)||isLateDone(t))
+    return measured.length?Math.round(measured.filter(isOnTime).length/measured.length*100):null
+  }
+
+  const overall={
+    projects:new Set(filtered.map(t=>t.project_id)).size,
+    tasks:filtered.length,
+    active:filtered.filter(isActive).length,
+    overdue:filtered.filter(isOverdue).length,
+    review:filtered.filter(t=>t.status==='review').length,
+    done:filtered.filter(isDone).length,
+    ontime:calcOnTime(filtered)
+  }
+
+  function pMetric(p){
+    const list=filtered.filter(t=>t.project_id===p.id)
+    const total=list.length, done=list.filter(isDone).length, overdue=list.filter(isOverdue).length, review=list.filter(t=>t.status==='review').length
+    const progress=total?Math.round(done/total*100):0
+    const due=p.due_at?new Date(p.due_at).getTime():null
+    const daysLeft=due?Math.ceil((due-now)/dayMs):null
+    let health='Healthy'
+    if(overdue>=2 || (total&&overdue/total>=.2) || (daysLeft!==null&&daysLeft<=7&&daysLeft>=0&&progress<70)) health='At risk'
+    else if(overdue>0 || review>=3 || (daysLeft!==null&&daysLeft<=7&&daysLeft>=0&&progress<85)) health='Watch'
+    return {p,list,total,done,active:list.filter(isActive).length,overdue,review,progress,ontime:calcOnTime(list),health,daysLeft}
+  }
+  const projectMetrics=(projects||[]).map(pMetric).filter(x=>projectFilter==='all'||x.p.id===projectFilter).sort((a,b)=>b.overdue-a.overdue||b.total-a.total)
+
+  function personMetric(m){
+    const list=filtered.filter(t=>t.assignee_id===m.user_id)
+    const active=list.filter(isActive)
+    const activeProjects=new Set(active.map(t=>t.project_id)).size
+    const overdue=list.filter(isOverdue).length
+    const review=list.filter(t=>t.status==='review').length
+    const high=active.filter(isHigh).length
+    const inProgress=active.filter(t=>t.status==='in_progress').length
+    const score=Math.round((active.length + inProgress + high*2 + overdue*3 + activeProjects*1.5 + review*.5)*10)/10
+    const workload=score<=4?'Low':score<=10?'Balanced':score<=16?'High':'Overloaded'
+    return {m,list,total:list.length,active:active.length,projects:activeProjects,overdue,review,done:list.filter(isDone).length,ontime:calcOnTime(list),score,workload}
+  }
+  const peopleMetrics=(members||[]).map(personMetric).filter(x=>memberFilter==='all'||x.m.user_id===memberFilter).sort((a,b)=>b.score-a.score)
+
+  const atRisk=projectMetrics.filter(x=>x.health==='At risk')
+  const overloaded=peopleMetrics.filter(x=>x.workload==='Overloaded')
+  const underloaded=peopleMetrics.filter(x=>x.workload==='Low'&&x.m.status==='active')
+  const reviewLeaders=[...peopleMetrics].sort((a,b)=>b.review-a.review).filter(x=>x.review>0).slice(0,5)
+  const topOverdue=[...filtered].filter(isOverdue).sort((a,b)=>new Date(a.due_at)-new Date(b.due_at)).slice(0,20)
+
+  const tabBtn=(key,label)=><button type="button" onClick={()=>setTab(key)} style={{border:'1px solid #e5e7eb',background:tab===key?'#fff3e8':'#fff',color:tab===key?'#b45309':'#374151',borderRadius:999,padding:'8px 12px',fontWeight:800,cursor:'pointer'}}>{label}</button>
+  const workloadStyle=w=>({color:w==='Overloaded'?'#b91c1c':w==='High'?'#c2410c':w==='Balanced'?'#166534':'#2563eb',fontWeight:800})
+  const healthStyle=h=>({color:h==='At risk'?'#b91c1c':h==='Watch'?'#c2410c':'#166534',fontWeight:800})
+
+  function openProjectMetric(x){ onOpenProject?.(x.p) }
+  function openPerson(x){ setMemberFilter(x.m.user_id); setTab('overview') }
 
   return <section className="page">
+    <div className="pageHead"><div><h1>Reports</h1><p>Smart Reports & Workload Intelligence — theo dõi Project, Task, workload và rủi ro theo quyền truy cập hiện tại.</p></div></div>
 
-    <div className="pageHead">
+    <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:14}}>{tabBtn('overview','Overview')}{tabBtn('projects','Projects')}{tabBtn('people','People')}{tabBtn('workload','Workload')}{tabBtn('insights','Insights')}</div>
 
-      <div>
-
-        <h1>
-          Reports
-        </h1>
-
-        <p>
-          Báo cáo theo Project, Team và Member.
-        </p>
-
-      </div>
-
+    <div style={{display:'grid',gridTemplateColumns:'150px 1fr 180px 180px 180px',gap:9,marginBottom:10}}>
+      <select value={period} onChange={e=>setPeriod(e.target.value)}><option value="all">Tất cả thời gian</option><option value="d7">7 ngày</option><option value="d30">30 ngày</option><option value="d90">90 ngày</option></select>
+      <input value={searchText} onChange={e=>setSearchText(e.target.value)} placeholder="Tìm task, project hoặc nhân sự..."/>
+      <select value={teamFilter} onChange={e=>setTeamFilter(e.target.value)}><option value="all">Tất cả Team</option>{(teams||[]).map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select>
+      <select value={projectFilter} onChange={e=>setProjectFilter(e.target.value)}><option value="all">Tất cả Project</option>{(projects||[]).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>
+      <select value={memberFilter} onChange={e=>setMemberFilter(e.target.value)}><option value="all">Tất cả Member</option>{(members||[]).map(m=><option key={m.user_id} value={m.user_id}>{m.profiles?.full_name||m.profiles?.email}</option>)}</select>
+    </div>
+    <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:16}}>
+      {[['all','Tất cả'],['overdue','Overdue'],['review','Chờ Review'],['priority','High/Urgent'],['unassigned','Chưa assign']].map(([k,l])=><button type="button" key={k} onClick={()=>setQuick(k)} style={{border:'1px solid #e5e7eb',background:quick===k?'#fff3e8':'#fff',borderRadius:999,padding:'7px 11px',fontWeight:700,cursor:'pointer'}}>{l}</button>)}
+      <select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} style={{width:160}}><option value="all">Mọi status</option>{STATUS.map(s=><option key={s} value={s}>{LABEL[s]||s}</option>)}</select>
     </div>
 
+    {loading?<div className="panel"><div className="empty">Đang tải dữ liệu báo cáo...</div></div>:<>
+      {tab==='overview'&&<>
+        <div className="statGrid" style={{gridTemplateColumns:'repeat(7,minmax(120px,1fr))'}}>
+          <Stat label="Projects" value={overall.projects}/><Stat label="Tasks" value={overall.tasks}/><Stat label="Active" value={overall.active}/><Stat label="Overdue" value={overall.overdue}/><Stat label="Review" value={overall.review}/><Stat label="Done" value={overall.done}/><Stat label="On-time" value={overall.ontime===null?'—':overall.ontime+'%'}/>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14,marginTop:14}}>
+          <div className="panel" style={{padding:16}}><h3 style={{marginTop:0}}>Project cần chú ý</h3>{atRisk.length?atRisk.slice(0,6).map(x=><button key={x.p.id} onClick={()=>openProjectMetric(x)} className="memberRow" style={{width:'100%'}}><span><b>{x.p.name}</b><small>{x.overdue} overdue · {x.progress}% hoàn thành</small></span><span style={healthStyle(x.health)}>{x.health}</span></button>):<div className="empty">Chưa có Project At risk.</div>}</div>
+          <div className="panel" style={{padding:16}}><h3 style={{marginTop:0}}>Workload cần cân bằng</h3>{[...overloaded,...underloaded].slice(0,6).map(x=><button key={x.m.user_id} onClick={()=>openPerson(x)} className="memberRow" style={{width:'100%'}}><span><b>{x.m.profiles?.full_name||x.m.profiles?.email}</b><small>{x.projects} Project · {x.active} task active · {x.overdue} overdue</small></span><span style={workloadStyle(x.workload)}>{x.workload}</span></button>)}</div>
+        </div>
+        <div className="panel" style={{marginTop:14}}><h3 style={{padding:'14px 16px 0'}}>Task cần can thiệp</h3>{topOverdue.length?topOverdue.map(t=><button key={t.id} className="memberRow" style={{width:'100%'}} onClick={()=>onOpenTask?.(t)}><span className={'statusBadge '+t.status}>{LABEL[t.status]||t.status}</span><span style={{minWidth:0}}><b>{t.title}</b><small>{t.project?.name||projectMap.get(t.project_id)?.name} · {t.profiles?.full_name||'Chưa assign'}</small></span><span style={{textAlign:'right',color:'#b91c1c',fontWeight:800}}>Trễ {Math.max(1,Math.ceil((now-new Date(t.due_at).getTime())/dayMs))} ngày</span></button>):<div className="empty">Không có task overdue trong bộ lọc hiện tại.</div>}</div>
+      </>}
 
-    <div className="statGrid">
+      {tab==='projects'&&<div className="panel" style={{overflowX:'auto'}}><table style={{width:'100%',borderCollapse:'collapse',minWidth:900}}><thead><tr>{['Project','Tổng task','Active','Done','Review','Overdue','Progress','On-time','Health'].map(h=><th key={h} style={{textAlign:'left',padding:12,borderBottom:'1px solid #eceff3'}}>{h}</th>)}</tr></thead><tbody>{projectMetrics.map(x=><tr key={x.p.id} onClick={()=>openProjectMetric(x)} style={{cursor:'pointer'}}><td style={{padding:12,borderBottom:'1px solid #f0f2f4'}}><b>{x.p.name}</b><small style={{display:'block'}}>{x.p.code}</small></td><td>{x.total}</td><td>{x.active}</td><td>{x.done}</td><td>{x.review}</td><td style={{color:x.overdue?'#b91c1c':undefined,fontWeight:x.overdue?800:400}}>{x.overdue}</td><td>{x.progress}%</td><td>{x.ontime===null?'—':x.ontime+'%'}</td><td style={healthStyle(x.health)}>{x.health}</td></tr>)}</tbody></table></div>}
 
-      <Stat
-        label="Projects"
-        value={projects.length}
-      />
+      {tab==='people'&&<div className="panel" style={{overflowX:'auto'}}><table style={{width:'100%',borderCollapse:'collapse',minWidth:950}}><thead><tr>{['Nhân sự','Project đang làm','Task active','Tổng task','Done','Overdue','Review','On-time','Workload'].map(h=><th key={h} style={{textAlign:'left',padding:12,borderBottom:'1px solid #eceff3'}}>{h}</th>)}</tr></thead><tbody>{peopleMetrics.map(x=><tr key={x.m.user_id} onClick={()=>openPerson(x)} style={{cursor:'pointer'}}><td style={{padding:12,borderBottom:'1px solid #f0f2f4'}}><b>{x.m.profiles?.full_name||x.m.profiles?.email}</b><small style={{display:'block'}}>{x.m.teams?.name||''}</small></td><td>{x.projects}</td><td>{x.active}</td><td>{x.total}</td><td>{x.done}</td><td style={{color:x.overdue?'#b91c1c':undefined,fontWeight:x.overdue?800:400}}>{x.overdue}</td><td>{x.review}</td><td>{x.ontime===null?'—':x.ontime+'%'}</td><td style={workloadStyle(x.workload)}>{x.workload} · {x.score}</td></tr>)}</tbody></table></div>}
 
-      <Stat
-        label="Members"
-        value={members.length}
-      />
+      {tab==='workload'&&<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',gap:12}}>{peopleMetrics.map(x=><article className="projectCard" key={x.m.user_id} onClick={()=>openPerson(x)} style={{cursor:'pointer'}}><div style={{display:'flex',justifyContent:'space-between',gap:12}}><div><h3 style={{margin:'0 0 4px'}}>{x.m.profiles?.full_name||x.m.profiles?.email}</h3><small>{x.m.teams?.name||'Chưa gán Team'}</small></div><b style={workloadStyle(x.workload)}>{x.workload}</b></div><div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginTop:14}}><div><small>Project</small><b style={{display:'block',fontSize:20}}>{x.projects}</b></div><div><small>Active</small><b style={{display:'block',fontSize:20}}>{x.active}</b></div><div><small>Overdue</small><b style={{display:'block',fontSize:20,color:x.overdue?'#b91c1c':undefined}}>{x.overdue}</b></div></div><small style={{display:'block',marginTop:12}}>Workload score {x.score} · On-time {x.ontime===null?'chưa đủ dữ liệu':x.ontime+'%'}</small></article>)}</div>}
 
-    </div>
-
+      {tab==='insights'&&<div className="panel" style={{padding:18}}><h3 style={{marginTop:0}}>Manager Insights</h3><div style={{display:'grid',gap:10}}>
+        <div style={{padding:13,border:'1px solid #eceff3',borderRadius:10}}><b>Project rủi ro:</b> {atRisk.length?`${atRisk.length} Project đang ở mức At risk. Ưu tiên kiểm tra ${atRisk.slice(0,3).map(x=>x.p.name).join(', ')}.`:'Chưa có Project nào bị đánh dấu At risk trong bộ lọc hiện tại.'}</div>
+        <div style={{padding:13,border:'1px solid #eceff3',borderRadius:10}}><b>Quá tải:</b> {overloaded.length?`${overloaded.length} người có workload Overloaded: ${overloaded.slice(0,5).map(x=>x.m.profiles?.full_name||x.m.profiles?.email).join(', ')}.`:'Chưa có người ở mức Overloaded.'}</div>
+        <div style={{padding:13,border:'1px solid #eceff3',borderRadius:10}}><b>Có thể nhận thêm việc:</b> {underloaded.length?`${underloaded.length} người đang ở mức Low: ${underloaded.slice(0,5).map(x=>x.m.profiles?.full_name||x.m.profiles?.email).join(', ')}.`:'Không có member active ở mức Low trong bộ lọc hiện tại.'}</div>
+        <div style={{padding:13,border:'1px solid #eceff3',borderRadius:10}}><b>Review backlog:</b> {overall.review?`${overall.review} task đang chờ Review.${reviewLeaders.length?' Người đang có nhiều task review: '+reviewLeaders.map(x=>`${x.m.profiles?.full_name||x.m.profiles?.email} (${x.review})`).join(', ')+'.':''}`:'Không có task chờ Review.'}</div>
+        <div style={{padding:13,border:'1px solid #eceff3',borderRadius:10}}><b>Đúng hạn:</b> {overall.ontime===null?'Chưa đủ dữ liệu completed_at + deadline để tính tỷ lệ đúng hạn.':`Tỷ lệ hoàn thành đúng hạn hiện tại là ${overall.ontime}%.`}</div>
+        <small style={{color:'#7b8491'}}>Workload là chỉ số hỗ trợ điều phối, không phải điểm đánh giá nhân sự. Score hiện tính theo task active, in-progress, priority cao, overdue, review và số Project đang tham gia.</small>
+      </div></div>}
+    </>}
   </section>
 }
 
@@ -6598,8 +6795,6 @@ function ProjectMemberDrawer({
     useState(
       item?.user_id
       ||
-      available[0]?.user_id
-      ||
       ''
     )
 
@@ -6866,62 +7061,13 @@ function ProjectMemberDrawer({
 
               </div>
 
-            : <select
+            : <SmartMemberPicker
+                members={available}
                 value={userId}
-
-                onChange={e=>
-                  setUserId(
-                    e.target.value
-                  )
-                }
-              >
-
-                {!available.length &&
-                  <option value="">
-                    Không còn member khả dụng
-                  </option>
-                }
-
-
-                {available.map(
-                  m=>
-                    <option
-                      key={m.user_id}
-                      value={m.user_id}
-                    >
-
-                      {
-                        m.profiles
-                          ?.full_name
-                        ||
-                        m.profiles
-                          ?.email
-                      }
-
-                      {
-                        m.role
-                          ? ` · ${
-                              m.role==='manager'
-                                ? 'Trưởng phòng'
-
-                                : m.role==='team_lead'
-                                  ? 'Team Lead'
-
-                                  : 'Member'
-                            }`
-                          : ''
-                      }
-
-                      {
-                        m.teams?.name
-                          ? ` · ${m.teams.name}`
-                          : ''
-                      }
-
-                    </option>
-                )}
-
-              </select>
+                onChange={setUserId}
+                emptyLabel={available.length?'— Chọn thành viên —':'Không còn member khả dụng'}
+                placeholder="Gõ tên, email, Team hoặc role..."
+              />
           }
 
         </Field>
@@ -7284,10 +7430,7 @@ function TeamEditDrawer({team,members,membership,onClose,onSaved}){
         <Field label="Mã Team"><input className="fullInput" value={form.code} disabled={!isManager} onChange={e=>setForm({...form,code:e.target.value})}/></Field>
         <Field label="Mô tả"><textarea rows="5" value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/></Field>
         <Field label="Team Lead">
-          <select value={form.lead_id} disabled={!isManager} onChange={e=>setForm({...form,lead_id:e.target.value})}>
-            <option value="">— Chưa gán —</option>
-            {members.map(m=><option key={m.user_id} value={m.user_id}>{m.profiles?.full_name||m.profiles?.email}</option>)}
-          </select>
+          <SmartMemberPicker members={members} value={form.lead_id} disabled={!isManager} onChange={id=>setForm({...form,lead_id:id})} placeholder="Tìm Team Lead..." emptyLabel="— Chưa gán —"/>
         </Field>
         {!isManager&&<small>Team Lead có thể sửa tên và mô tả Team. Chỉ Trưởng phòng được đổi mã hoặc Team Lead.</small>}
         {error&&<div className="errorBox">{error}</div>}
@@ -7363,7 +7506,7 @@ function ProjectEditDrawer({project,workspaceMembers,membership,onClose,onSaved}
           <Field label="Ngày bắt đầu"><input className="fullInput" type="date" value={form.start_at} onChange={e=>setForm({...form,start_at:e.target.value})}/></Field>
           <Field label="Deadline"><input className="fullInput" type="date" value={form.due_at} onChange={e=>setForm({...form,due_at:e.target.value})}/></Field>
         </div>
-        {isManager&&<Field label="Project Lead"><select value={form.lead_id} onChange={e=>setForm({...form,lead_id:e.target.value})}><option value="">—</option>{workspaceMembers.map(m=><option key={m.user_id} value={m.user_id}>{m.profiles?.full_name||m.profiles?.email}</option>)}</select></Field>}
+        {isManager&&<Field label="Project Lead"><SmartMemberPicker members={workspaceMembers} value={form.lead_id} onChange={id=>setForm({...form,lead_id:id})} placeholder="Tìm Project Lead..." emptyLabel="— Chưa gán —"/></Field>}
 
         <div style={{marginTop:10,paddingTop:14,borderTop:'1px solid #eceff3'}}>
           <h3 style={{margin:'0 0 4px'}}>Links làm việc</h3>
