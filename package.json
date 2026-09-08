@@ -1,6 +1,6 @@
 {
   "name": "fptu-work",
-  "version": "17.2.0",
+  "version": "18.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -13,6 +13,7 @@
     "nodemailer": "^7.0.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
+    "web-push": "^3.6.7",
     "xlsx": "^0.18.5"
   }
 }
