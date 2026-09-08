@@ -154,6 +154,298 @@ export default function Home(){
 
   const [taskFilter,setTaskFilter]=useState('all')
 
+  const [pushStatus,setPushStatus]=useState('checking')
+  const deepLinkHandledRef=useRef(false)
+
+
+  // ===================================================
+  // PWA / WEB PUSH
+  // ===================================================
+
+  function urlBase64ToUint8Array(base64String){
+
+    const padding='='.repeat(
+      (4-base64String.length%4)%4
+    )
+
+    const base64=(
+      base64String+padding
+    )
+      .replace(/-/g,'+')
+      .replace(/_/g,'/')
+
+    const rawData=window.atob(base64)
+
+    return Uint8Array.from(
+      [...rawData].map(
+        char=>char.charCodeAt(0)
+      )
+    )
+  }
+
+
+  async function syncPushSubscription(subscription){
+
+    if(
+      !subscription
+      ||
+      !session?.access_token
+    ){
+      return false
+    }
+
+    const res=await fetch(
+      '/api/push/subscribe',
+      {
+        method:'POST',
+        headers:{
+          'Content-Type':'application/json',
+          Authorization:
+            `Bearer ${session.access_token}`
+        },
+        body:JSON.stringify(
+          subscription.toJSON()
+        )
+      }
+    )
+
+    if(!res.ok){
+
+      const payload=
+        await res.json()
+          .catch(()=>({}))
+
+      throw new Error(
+        payload.error
+        ||
+        'Không lưu được thiết bị nhận thông báo'
+      )
+    }
+
+    return true
+  }
+
+
+  async function checkPushStatus(){
+
+    if(
+      typeof window==='undefined'
+      ||
+      !('serviceWorker' in navigator)
+      ||
+      !('PushManager' in window)
+      ||
+      !('Notification' in window)
+    ){
+      setPushStatus('unsupported')
+      return
+    }
+
+    try{
+
+      await navigator.serviceWorker
+        .register('/sw.js')
+
+      const registration=
+        await navigator.serviceWorker.ready
+
+      const subscription=
+        await registration.pushManager
+          .getSubscription()
+
+      if(
+        Notification.permission==='granted'
+        &&
+        subscription
+      ){
+
+        setPushStatus('enabled')
+
+        if(session?.access_token){
+          await syncPushSubscription(
+            subscription
+          )
+        }
+
+      }else if(
+        Notification.permission==='denied'
+      ){
+
+        setPushStatus('blocked')
+
+      }else{
+
+        setPushStatus('disabled')
+      }
+
+    }catch(e){
+
+      console.error(
+        'Push status error',
+        e
+      )
+
+      setPushStatus('disabled')
+    }
+  }
+
+
+  async function enablePush(){
+
+    if(
+      typeof window==='undefined'
+    ){
+      return
+    }
+
+
+    const isIOS=
+      /iPad|iPhone|iPod/.test(
+        navigator.userAgent
+      )
+
+    const isStandalone=
+      window.matchMedia(
+        '(display-mode: standalone)'
+      ).matches
+      ||
+      window.navigator.standalone===true
+
+
+    if(
+      isIOS
+      &&
+      !isStandalone
+    ){
+
+      alert(
+        'Trên iPhone/iPad: mở bằng Safari → Chia sẻ → Thêm vào Màn hình chính. Sau đó mở FPTU MKT Work từ icon ngoài màn hình và bấm “Bật thông báo” lần nữa.'
+      )
+
+      return
+    }
+
+
+    if(
+      !('serviceWorker' in navigator)
+      ||
+      !('PushManager' in window)
+      ||
+      !('Notification' in window)
+    ){
+
+      alert(
+        'Trình duyệt/thiết bị này chưa hỗ trợ Web Push.'
+      )
+
+      return
+    }
+
+
+    const vapidPublicKey=
+      process.env
+        .NEXT_PUBLIC_VAPID_PUBLIC_KEY
+
+
+    if(!vapidPublicKey){
+
+      alert(
+        'Hệ thống chưa cấu hình VAPID Public Key.'
+      )
+
+      return
+    }
+
+
+    try{
+
+      setPushStatus('checking')
+
+      const registration=
+        await navigator.serviceWorker
+          .register('/sw.js')
+
+      const permission=
+        await Notification
+          .requestPermission()
+
+
+      if(permission!=='granted'){
+
+        setPushStatus(
+          permission==='denied'
+            ? 'blocked'
+            : 'disabled'
+        )
+
+        return
+      }
+
+
+      let subscription=
+        await registration
+          .pushManager
+          .getSubscription()
+
+
+      if(!subscription){
+
+        subscription=
+          await registration
+            .pushManager
+            .subscribe({
+              userVisibleOnly:true,
+              applicationServerKey:
+                urlBase64ToUint8Array(
+                  vapidPublicKey
+                )
+            })
+      }
+
+
+      await syncPushSubscription(
+        subscription
+      )
+
+      setPushStatus('enabled')
+
+      if(
+        navigator.setAppBadge
+      ){
+        navigator.setAppBadge(0)
+          .catch(()=>{})
+      }
+
+      showToast(
+        'Đã bật thông báo trên thiết bị này'
+      )
+
+    }catch(e){
+
+      setPushStatus('disabled')
+
+      alert(
+        'Không bật được thông báo: '+
+        e.message
+      )
+    }
+  }
+
+
+  useEffect(()=>{
+
+    if(
+      !session?.user?.id
+    ){
+      return
+    }
+
+    checkPushStatus()
+
+  },[
+    session?.user?.id
+  ])
+
 
   // ===================================================
   // AUTH
@@ -417,6 +709,89 @@ export default function Home(){
     project?.id,
     projectTab,
     view
+  ])
+
+
+  // ===================================================
+  // PUSH / URL DEEP LINK
+  // ===================================================
+
+  useEffect(()=>{
+
+    if(
+      loading
+      ||
+      !session?.user?.id
+      ||
+      !membership?.id
+      ||
+      deepLinkHandledRef.current
+    ){
+      return
+    }
+
+
+    const params=
+      new URLSearchParams(
+        window.location.search
+      )
+
+    const projectId=
+      params.get('project')
+      ||
+      params.get('project_id')
+
+    const taskId=
+      params.get('task')
+      ||
+      params.get('task_id')
+
+    const commentId=
+      params.get('comment')
+      ||
+      params.get('comment_id')
+
+
+    if(
+      !projectId
+      &&
+      !taskId
+    ){
+      return
+    }
+
+
+    deepLinkHandledRef.current=true
+
+
+    openNotification({
+      id:null,
+      is_read:true,
+      project_id:projectId||null,
+      task_id:taskId||null,
+      comment_id:commentId||null
+    })
+      .finally(()=>{
+
+        const invite=
+          params.get('invite')
+
+        const cleanUrl=
+          invite
+            ? `/?invite=${encodeURIComponent(invite)}`
+            : '/'
+
+        history.replaceState(
+          {},
+          '',
+          cleanUrl
+        )
+      })
+
+  },[
+    loading,
+    session?.user?.id,
+    membership?.id
   ])
 
 
@@ -790,10 +1165,14 @@ export default function Home(){
     }
 
 
+    const baseUrl=
+      String(appUrl||'')
+        .replace(/\/$/,'')
+
     const redirectTo=
-      invite
-        ? `${appUrl}/?invite=${encodeURIComponent(invite)}`
-        : appUrl
+      window.location.search
+        ? `${baseUrl}/${window.location.search}`
+        : baseUrl
 
 
     await supabase.auth
@@ -2402,6 +2781,40 @@ export default function Home(){
 
 
         <div className="topActions">
+
+          <button
+            type="button"
+            onClick={enablePush}
+            title={
+              pushStatus==='enabled'
+                ? 'Thông báo hệ điều hành đã bật'
+                : pushStatus==='blocked'
+                  ? 'Thông báo đang bị chặn trong trình duyệt'
+                  : 'Bật thông báo trên thiết bị này'
+            }
+            style={{
+              border:'1px solid #f2b27b',
+              background:
+                pushStatus==='enabled'
+                  ? '#fff3e8'
+                  : '#fff',
+              color:'#9a4b00',
+              borderRadius:10,
+              padding:'8px 10px',
+              fontWeight:700,
+              cursor:'pointer',
+              whiteSpace:'nowrap'
+            }}
+          >
+            {
+              pushStatus==='enabled'
+                ? '🔔 Push ON'
+                : pushStatus==='checking'
+                  ? '🔔 ...'
+                  : '🔔 Bật thông báo'
+            }
+          </button>
+
 
           <button
             className="iconBtn"
@@ -7716,4 +8129,3 @@ function ProjectActivity({
 
   </div>
 }
-
