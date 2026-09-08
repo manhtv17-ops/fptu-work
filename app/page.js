@@ -2970,7 +2970,23 @@ export default function Home(){
       {view==='mytasks' &&
         <MyTasks
           membership={membership}
-          onOpenProject={openProject}
+          onOpenTask={async(task)=>{
+            if(!task?.project) return
+
+            const opened=await openProject(
+              task.project,
+              {tab:'list'}
+            )
+
+            const targetTask=
+              opened?.tasks?.find(
+                x=>x.id===task.id
+              )
+              || task
+
+            setFocusCommentId(null)
+            setTaskDrawer(targetTask)
+          }}
         />
       }
 
@@ -5693,157 +5709,247 @@ function HomeDashboard({
 
 function MyTasks({
   membership,
-  onOpenProject
+  onOpenTask
 }){
 
   const [rows,setRows]=useState([])
   const [loading,setLoading]=useState(true)
-
+  const [filter,setFilter]=useState('all')
+  const [searchText,setSearchText]=useState('')
+  const [projectFilter,setProjectFilter]=useState('all')
+  const [priorityFilter,setPriorityFilter]=useState('all')
 
   useEffect(()=>{
 
-    if(
-      !membership?.user_id
-    ){
+    if(!membership?.user_id){
       return
     }
 
-
     setLoading(true)
-
 
     supabase
       .from('tasks')
-      .select(
-        '*, project:projects(*)'
-      )
-      .eq(
-        'assignee_id',
-        membership.user_id
-      )
-      .is(
-        'archived_at',
-        null
-      )
-      .order(
-        'due_at',
-        {
-          ascending:true,
-          nullsFirst:false
-        }
-      )
-      .then(
-        ({data})=>{
+      .select('*, project:projects(*)')
+      .eq('assignee_id',membership.user_id)
+      .is('archived_at',null)
+      .order('created_at',{ascending:false})
+      .then(({data})=>{
+        setRows(data||[])
+        setLoading(false)
+      })
 
-          setRows(
-            data||[]
-          )
+  },[membership?.user_id])
 
-          setLoading(false)
-        }
-      )
 
-  },[
-    membership?.user_id
-  ])
+  const now=Date.now()
+  const dayMs=24*60*60*1000
 
+  const isDone=(t)=>t.status==='done'
+
+  const isOverdue=(t)=>{
+    if(!t.due_at || isDone(t)) return false
+    return new Date(t.due_at).getTime()<now
+  }
+
+  const isNew=(t)=>{
+    if(!t.created_at || isDone(t)) return false
+    return now-new Date(t.created_at).getTime()<=3*dayMs
+  }
+
+  const isPriority=(t)=>
+    ['urgent','high'].includes(t.priority)
+    && !isDone(t)
+
+  const needDo=(t)=>
+    ['todo','in_progress'].includes(t.status)
+
+  const counts={
+    all:rows.length,
+    need:rows.filter(needDo).length,
+    new:rows.filter(isNew).length,
+    overdue:rows.filter(isOverdue).length,
+    priority:rows.filter(isPriority).length,
+    in_progress:rows.filter(t=>t.status==='in_progress').length,
+    review:rows.filter(t=>t.status==='review').length,
+    done:rows.filter(isDone).length
+  }
+
+  const projects=[...new Map(
+    rows
+      .filter(t=>t.project?.id)
+      .map(t=>[t.project.id,t.project])
+  ).values()]
+
+  const matchesQuick=(t)=>{
+    if(filter==='need') return needDo(t)
+    if(filter==='new') return isNew(t)
+    if(filter==='overdue') return isOverdue(t)
+    if(filter==='priority') return isPriority(t)
+    if(filter==='in_progress') return t.status==='in_progress'
+    if(filter==='review') return t.status==='review'
+    if(filter==='done') return isDone(t)
+    return true
+  }
+
+  const q=searchText.trim().toLowerCase()
+
+  const visibleRows=rows
+    .filter(matchesQuick)
+    .filter(t=>
+      projectFilter==='all'
+      || t.project?.id===projectFilter
+    )
+    .filter(t=>
+      priorityFilter==='all'
+      || t.priority===priorityFilter
+    )
+    .filter(t=>{
+      if(!q) return true
+      return [
+        t.title,
+        t.code,
+        t.project?.name,
+        t.project?.code
+      ]
+        .filter(Boolean)
+        .some(v=>String(v).toLowerCase().includes(q))
+    })
+    .sort((a,b)=>{
+      const overdueDiff=Number(isOverdue(b))-Number(isOverdue(a))
+      if(overdueDiff) return overdueDiff
+
+      const rank={urgent:0,high:1,medium:2,low:3}
+      const priorityDiff=(rank[a.priority]??9)-(rank[b.priority]??9)
+      if(priorityDiff) return priorityDiff
+
+      const aDue=a.due_at ? new Date(a.due_at).getTime() : Number.MAX_SAFE_INTEGER
+      const bDue=b.due_at ? new Date(b.due_at).getTime() : Number.MAX_SAFE_INTEGER
+      if(aDue!==bDue) return aDue-bDue
+
+      return new Date(b.created_at||0)-new Date(a.created_at||0)
+    })
+
+  const quickFilters=[
+    ['all','Tất cả'],
+    ['need','Cần làm'],
+    ['new','Mới được giao'],
+    ['overdue','Trễ hạn'],
+    ['priority','Ưu tiên'],
+    ['in_progress','Đang làm'],
+    ['review','Chờ Review'],
+    ['done','Hoàn thành']
+  ]
+
+  function overdueText(t){
+    if(!isOverdue(t)) return ''
+    const diff=Math.max(1,Math.ceil((now-new Date(t.due_at).getTime())/dayMs))
+    return `Trễ ${diff} ngày`
+  }
 
   return <section className="page">
 
     <div className="pageHead">
-
       <div>
-
-        <h1>
-          My Tasks
-        </h1>
-
-        <p>
-          Task được giao cho bạn từ tất cả Project.
-        </p>
-
+        <h1>My Tasks</h1>
+        <p>Việc của bạn từ tất cả Project — ưu tiên việc trễ hạn, quan trọng và sắp đến deadline.</p>
       </div>
-
     </div>
 
+    <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:14}}>
+      {quickFilters.map(([key,label])=>
+        <button
+          key={key}
+          type="button"
+          onClick={()=>setFilter(key)}
+          style={{
+            border:'1px solid #e5e7eb',
+            background:filter===key ? '#fff3e8' : '#fff',
+            color:filter===key ? '#b45309' : '#374151',
+            borderRadius:999,
+            padding:'8px 12px',
+            fontWeight:700,
+            cursor:'pointer'
+          }}
+        >
+          {label} ({counts[key]||0})
+        </button>
+      )}
+    </div>
+
+    <div style={{display:'grid',gridTemplateColumns:'minmax(220px,1fr) 220px 180px',gap:10,marginBottom:14}}>
+      <input
+        value={searchText}
+        onChange={e=>setSearchText(e.target.value)}
+        placeholder="Tìm theo tên task, mã task hoặc Project..."
+        style={{border:'1px solid #e5e7eb',borderRadius:10,padding:'10px 12px',background:'#fff'}}
+      />
+
+      <select
+        value={projectFilter}
+        onChange={e=>setProjectFilter(e.target.value)}
+        style={{border:'1px solid #e5e7eb',borderRadius:10,padding:'10px 12px',background:'#fff'}}
+      >
+        <option value="all">Tất cả Project</option>
+        {projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+      </select>
+
+      <select
+        value={priorityFilter}
+        onChange={e=>setPriorityFilter(e.target.value)}
+        style={{border:'1px solid #e5e7eb',borderRadius:10,padding:'10px 12px',background:'#fff'}}
+      >
+        <option value="all">Mọi mức ưu tiên</option>
+        <option value="urgent">Urgent</option>
+        <option value="high">High</option>
+        <option value="medium">Medium</option>
+        <option value="low">Low</option>
+      </select>
+    </div>
 
     <div className="panel taskPanel">
 
       {loading
+        ? <div className="empty">Đang tải...</div>
+        : visibleRows.length
+          ? visibleRows.map(t=>
+              <button
+                className="memberRow"
+                key={t.id}
+                onClick={()=>onOpenTask?.(t)}
+                style={{alignItems:'center'}}
+              >
+                <span className={'statusBadge '+t.status}>
+                  {LABEL[t.status]||t.status}
+                </span>
 
-        ? <div className="empty">
-            Đang tải...
-          </div>
+                <span style={{minWidth:0}}>
+                  <b>{t.title}</b>
 
-        : rows.length
+                  <small style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
+                    <span>{t.project?.name||'Personal task'} · {t.code}</span>
 
-          ? rows.map(
-              t=>
-                <button
-                  className="memberRow"
+                    {isNew(t) && <span style={{fontWeight:800,color:'#2563eb'}}>Mới</span>}
 
-                  key={t.id}
-
-                  onClick={()=>
-                    t.project
-                    &&
-                    onOpenProject?.(
-                      t.project,
-                      {
-                        tab:'list'
-                      }
-                    )
-                  }
-                >
-
-                  <span
-                    className={
-                      'statusBadge '+
-                      t.status
+                    {t.priority &&
+                      <span style={{fontWeight:800,color:['urgent','high'].includes(t.priority)?'#b91c1c':'#6b7280'}}>
+                        {PRIORITY[t.priority]||t.priority}
+                      </span>
                     }
-                  >
+                  </small>
+                </span>
 
-                    {
-                      LABEL[t.status]
-                      ||
-                      t.status
-                    }
-
-                  </span>
-
-
-                  <span>
-
-                    <b>
-                      {t.title}
-                    </b>
-
-                    <small>
-
-                      {
-                        t.project?.name
-                        ||
-                        'Personal task'
-                      }
-
-                      {' · '}
-
-                      {t.code}
-
+                <span style={{textAlign:'right'}}>
+                  <div>{fmtDate(t.due_at)}</div>
+                  {isOverdue(t) &&
+                    <small style={{display:'block',fontWeight:800,color:'#b91c1c'}}>
+                      {overdueText(t)}
                     </small>
-
-                  </span>
-
-
-                  <span>
-                    {fmtDate(t.due_at)}
-                  </span>
-
-                </button>
+                  }
+                </span>
+              </button>
             )
-
           : <div className="empty">
-              Bạn chưa có task nào.
+              Không có task phù hợp với bộ lọc hiện tại.
             </div>
       }
 
