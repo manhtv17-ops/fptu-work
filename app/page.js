@@ -6143,6 +6143,36 @@ function MyTasks({
   const [searchText,setSearchText]=useState('')
   const [projectFilter,setProjectFilter]=useState('all')
   const [priorityFilter,setPriorityFilter]=useState('all')
+  const isManager=String(membership?.role||'').toLowerCase()==='manager'
+
+  async function deletePersonalOrOrphanTask(task){
+    if(!task?.id || !isManager) return
+
+    const ok=window.confirm(
+      `XÓA HẲN task "${task.title}"?\n\nDùng cho task test / task bị mồ côi sau khi Project đã bị xóa. Thao tác này không thể hoàn tác.`
+    )
+    if(!ok) return
+
+    const confirmAgain=window.prompt('Nhập DELETE để xác nhận:')
+    if(confirmAgain!=='DELETE') return
+
+    const {data,error}=await supabase.rpc(
+      'manager_delete_personal_or_orphan_task',
+      {p_task_id:task.id}
+    )
+
+    if(error){
+      alert('Không xóa được task: '+error.message)
+      return
+    }
+
+    if(data?.ok===false){
+      alert(data?.message||'Không thể xóa task.')
+      return
+    }
+
+    setRows(prev=>prev.filter(t=>t.id!==task.id))
+  }
 
   useEffect(()=>{
 
@@ -6336,43 +6366,60 @@ function MyTasks({
       {loading
         ? <div className="empty">Đang tải...</div>
         : visibleRows.length
-          ? visibleRows.map(t=>
-              <button
-                className="memberRow"
-                key={t.id}
-                onClick={()=>onOpenTask?.(t)}
-                style={{alignItems:'center'}}
-              >
-                <span className={'statusBadge '+t.status}>
-                  {LABEL[t.status]||t.status}
-                </span>
+          ? visibleRows.map(t=>{
+              const isPersonalOrOrphan=!t.project?.id
+              return <div key={t.id} style={{display:'flex',alignItems:'stretch',borderBottom:'1px solid #edf0f3'}}>
+                <button
+                  className="memberRow"
+                  onClick={()=>{
+                    if(t.project?.id) onOpenTask?.(t)
+                    else if(!isManager) alert('Task này không còn Project để mở. Vui lòng báo Manager xử lý.')
+                  }}
+                  style={{alignItems:'center',flex:1,borderBottom:0}}
+                >
+                  <span className={'statusBadge '+t.status}>
+                    {LABEL[t.status]||t.status}
+                  </span>
 
-                <span style={{minWidth:0}}>
-                  <b>{t.title}</b>
+                  <span style={{minWidth:0}}>
+                    <b>{t.title}</b>
 
-                  <small style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
-                    <span>{t.project?.name||'Personal task'} · {t.code}</span>
+                    <small style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
+                      <span>{t.project?.name||(isPersonalOrOrphan?'Task không còn Project':'Personal task')} · {t.code}</span>
 
-                    {isNew(t) && <span style={{fontWeight:800,color:'#2563eb'}}>Mới</span>}
+                      {isPersonalOrOrphan && <span style={{fontWeight:800,color:'#b45309'}}>Cần dọn dữ liệu</span>}
+                      {isNew(t) && <span style={{fontWeight:800,color:'#2563eb'}}>Mới</span>}
 
-                    {t.priority &&
-                      <span style={{fontWeight:800,color:['urgent','high'].includes(t.priority)?'#b91c1c':'#6b7280'}}>
-                        {PRIORITY[t.priority]||t.priority}
-                      </span>
-                    }
-                  </small>
-                </span>
-
-                <span style={{textAlign:'right'}}>
-                  <div>{fmtDate(t.due_at)}</div>
-                  {isOverdue(t) &&
-                    <small style={{display:'block',fontWeight:800,color:'#b91c1c'}}>
-                      {overdueText(t)}
+                      {t.priority &&
+                        <span style={{fontWeight:800,color:['urgent','high'].includes(t.priority)?'#b91c1c':'#6b7280'}}>
+                          {PRIORITY[t.priority]||t.priority}
+                        </span>
+                      }
                     </small>
-                  }
-                </span>
-              </button>
-            )
+                  </span>
+
+                  <span style={{textAlign:'right'}}>
+                    <div>{fmtDate(t.due_at)}</div>
+                    {isOverdue(t) &&
+                      <small style={{display:'block',fontWeight:800,color:'#b91c1c'}}>
+                        {overdueText(t)}
+                      </small>
+                    }
+                  </span>
+                </button>
+
+                {isManager && isPersonalOrOrphan &&
+                  <button
+                    type="button"
+                    onClick={()=>deletePersonalOrOrphanTask(t)}
+                    title="Xóa task test / task mồ côi"
+                    style={{minWidth:64,border:0,borderLeft:'1px solid #fee2e2',background:'#fff7f7',color:'#b91c1c',fontWeight:900,cursor:'pointer',fontSize:20}}
+                  >
+                    🗑
+                  </button>
+                }
+              </div>
+            })
           : <div className="empty">
               Không có task phù hợp với bộ lọc hiện tại.
             </div>
