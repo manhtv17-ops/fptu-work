@@ -2301,6 +2301,74 @@ export default function Home(){
 
 
   // ===================================================
+  // ARCHIVE / DELETE TEST TASK
+  // ===================================================
+
+  async function archiveTask(task){
+    if(!task?.id) return
+
+    const ok=window.confirm(
+      `Archive task "${task.title}"? Task sẽ được ẩn khỏi My Tasks/Reports mặc định nhưng vẫn giữ lịch sử.`
+    )
+    if(!ok) return
+
+    const archivedAt=new Date().toISOString()
+    const {error}=await supabase
+      .from('tasks')
+      .update({archived_at:archivedAt})
+      .eq('id',task.id)
+
+    if(error){
+      alert('Không archive được task: '+error.message)
+      return
+    }
+
+    setTasks(prev=>prev.filter(t=>t.id!==task.id))
+    if(taskDrawer?.id===task.id){
+      setTaskDrawer(null)
+      setFocusCommentId(null)
+    }
+    showToast('Đã archive Task')
+  }
+
+  async function deleteTestTask(task){
+    if(!task?.id) return
+
+    const ok=window.confirm(
+      `XÓA HẲN task test "${task.title}"?\n\nChỉ nên dùng cho dữ liệu test. Thao tác này không thể hoàn tác.`
+    )
+    if(!ok) return
+
+    const confirmAgain=window.prompt(
+      'Nhập DELETE để xác nhận xóa hẳn task test:'
+    )
+    if(confirmAgain!=='DELETE') return
+
+    const {data,error}=await supabase.rpc(
+      'manager_delete_test_task',
+      {p_task_id:task.id}
+    )
+
+    if(error){
+      alert('Không xóa được task test: '+error.message)
+      return
+    }
+
+    if(data?.ok===false){
+      alert(data?.message||'Task này không đủ điều kiện để xóa hẳn. Hãy Archive thay thế.')
+      return
+    }
+
+    setTasks(prev=>prev.filter(t=>t.id!==task.id))
+    if(taskDrawer?.id===task.id){
+      setTaskDrawer(null)
+      setFocusCommentId(null)
+    }
+    showToast('Đã xóa task test')
+  }
+
+
+  // ===================================================
   // CHECKBOX
   // ===================================================
 
@@ -2640,6 +2708,12 @@ export default function Home(){
       .projectHeaderActions{display:flex;align-items:center;gap:10px;position:relative}
       .quickAddSave{margin-left:8px;white-space:nowrap}
       .taskCreateSticky{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
+      .taskActionMenu{position:relative;display:flex;align-items:center;gap:8px}
+      .taskMenuPopover{position:absolute;right:0;top:44px;z-index:1800;min-width:230px;background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 18px 42px rgba(15,23,42,.18);padding:7px}
+      .taskMenuPopover button{display:block;width:100%;border:0;background:#fff;text-align:left;padding:11px 12px;border-radius:9px;font-size:14px}
+      .taskMenuPopover button:hover{background:#f8fafc}
+      .taskMenuPopover .danger{color:#b42318;font-weight:700}
+      .taskArchiveHint{font-size:12px;line-height:1.4;color:#64748b;padding:8px 10px 4px}
 
       @media (max-width: 760px){
         html,body{overflow-x:hidden}
@@ -2686,6 +2760,13 @@ export default function Home(){
         .drawerWrap{align-items:flex-end!important;padding:0!important}
         .drawer,.drawer.narrow{width:100%!important;max-width:none!important;height:auto!important;max-height:94dvh!important;border-radius:18px 18px 0 0!important;overflow:hidden!important}
         .drawerHead{padding:14px 16px!important;position:sticky!important;top:0!important;background:#fff!important;z-index:20!important}
+        .drawerHead>div:first-child{min-width:0!important;flex:1!important}
+        .drawerTitle{font-size:21px!important;line-height:1.25!important;min-width:0!important;width:100%!important}
+        .taskActionMenu{gap:6px!important;flex:0 0 auto!important}
+        .taskActionMenu>button{min-width:44px!important;min-height:44px!important;font-size:22px!important}
+        .taskMenuPopover{position:fixed!important;left:12px!important;right:12px!important;top:auto!important;bottom:calc(82px + env(safe-area-inset-bottom))!important;min-width:0!important;border-radius:18px!important;padding:8px!important;box-shadow:0 24px 60px rgba(15,23,42,.28)!important}
+        .taskMenuPopover button{min-height:50px!important;font-size:16px!important;padding:13px 14px!important}
+        .taskMenuPopover .taskArchiveHint{font-size:13px!important;padding:9px 12px!important}
         .drawerBody{padding:14px 16px calc(24px + env(safe-area-inset-bottom))!important;overflow-y:auto!important;max-height:calc(94dvh - 68px)!important}
         .fieldGrid,.taskCreateGrid{grid-template-columns:1fr!important}
         .field input,.field select,.field textarea,.fullInput{font-size:16px!important;min-height:46px!important;width:100%!important;box-sizing:border-box!important}
@@ -3253,6 +3334,19 @@ export default function Home(){
         onUpdate={
           updateTask
         }
+
+        canArchive={
+          membership?.role==='manager'
+          || membership?.role==='team_lead'
+          || currentUserIsProjectLead
+        }
+
+        canDeleteTest={
+          membership?.role==='manager'
+        }
+
+        onArchive={archiveTask}
+        onDeleteTest={deleteTestTask}
       />
     }
 
@@ -4794,7 +4888,11 @@ function TaskDrawer({
   onFocusDone,
 
   onClose,
-  onUpdate
+  onUpdate,
+  canArchive=false,
+  canDeleteTest=false,
+  onArchive,
+  onDeleteTest
 }){
 
   const [comments,setComments]=useState([])
@@ -4810,6 +4908,7 @@ function TaskDrawer({
   const [highlightComment,setHighlightComment]=useState(null)
 
   const textareaRef=useRef(null)
+  const [taskMenuOpen,setTaskMenuOpen]=useState(false)
 
 
   useEffect(()=>{
@@ -5225,11 +5324,36 @@ function TaskDrawer({
         </div>
 
 
-        <button
-          onClick={onClose}
-        >
-          ×
-        </button>
+        <div className="taskActionMenu">
+
+          {(canArchive||canDeleteTest) && <button
+            aria-label="Thao tác Task"
+            title="Thao tác Task"
+            onClick={()=>setTaskMenuOpen(v=>!v)}
+          >
+            ⋯
+          </button>}
+
+          <button
+            aria-label="Đóng"
+            onClick={onClose}
+          >
+            ×
+          </button>
+
+          {taskMenuOpen && <div className="taskMenuPopover">
+            {canArchive && <button onClick={()=>{setTaskMenuOpen(false);onArchive?.(task)}}>
+              📦 Archive Task
+            </button>}
+            {canDeleteTest && <button className="danger" onClick={()=>{setTaskMenuOpen(false);onDeleteTest?.(task)}}>
+              🗑 Delete Test Task
+            </button>}
+            <div className="taskArchiveHint">
+              Archive giữ lịch sử. Delete Test Task chỉ dành cho Manager và dữ liệu test đủ điều kiện.
+            </div>
+          </div>}
+
+        </div>
 
       </div>
 
