@@ -1,5 +1,7 @@
 'use client'
 
+// FPTU Work v18.8 - Mobile UX Optimization
+
 import {
   useEffect,
   useMemo,
@@ -1953,6 +1955,79 @@ export default function Home(){
   }
 
 
+  async function createTaskDetailed(form){
+    const title=(form?.title||'').trim()
+    if(!title||!project||!canTask){
+      return {ok:false,error:'Vui lòng nhập tên Task.'}
+    }
+
+    const assigneeId=form?.assignee_id||session.user.id
+
+    if(assigneeId && !projectMembers.some(m=>m.user_id===assigneeId)){
+      const targetMember=members.find(m=>m.user_id===assigneeId)
+      if(!targetMember){
+        return {ok:false,error:'Không tìm thấy người được giao trong Workspace.'}
+      }
+      if(!canAutoAddTaskAssignee){
+        return {ok:false,error:'Người này chưa thuộc Project. Hãy Add member vào Project trước khi giao Task.'}
+      }
+      const {error:addError}=await supabase.rpc('add_project_member_safe',{
+        p_project_id:project.id,
+        p_user_id:assigneeId,
+        p_role_in_project:'member',
+        p_can_create_task:true,
+        p_can_assign_task:true,
+        p_can_manage_project_members:false
+      })
+      if(addError){
+        return {ok:false,error:'Không thể thêm người này vào Project: '+addError.message}
+      }
+      setProjectMembers(prev=>[...prev,{
+        project_id:project.id,user_id:assigneeId,role_in_project:'member',
+        can_create_task:true,can_assign_task:true,can_manage_project_members:false,
+        profiles:targetMember.profiles
+      }])
+    }
+
+    const {data:taskId,error:createError}=await supabase.rpc('create_project_task_safe',{
+      p_project_id:project.id,
+      p_title:title,
+      p_assignee_id:assigneeId||null
+    })
+    if(createError){
+      return {ok:false,error:'Không tạo được Task: '+createError.message}
+    }
+
+    const patch={
+      description:(form?.description||'').trim()||null,
+      priority:form?.priority||'medium',
+      due_at:form?.due_at?new Date(form.due_at+'T17:00:00').toISOString():null,
+      delivery_url:(form?.delivery_url||'').trim()||null
+    }
+    const {error:updateError}=await supabase.from('tasks').update(patch).eq('id',taskId)
+    if(updateError){
+      return {ok:false,error:'Task đã được tạo nhưng không lưu đủ thông tin: '+updateError.message}
+    }
+
+    const {data,error:loadError}=await supabase
+      .from('tasks')
+      .select('*, profiles!tasks_assignee_id_fkey(full_name,avatar_url,email)')
+      .eq('id',taskId)
+      .single()
+    if(loadError){
+      return {ok:false,error:'Task đã được tạo nhưng chưa tải lại được: '+loadError.message}
+    }
+
+    if(data){
+      setTasks(prev=>[data,...prev.filter(x=>x.id!==data.id)])
+      setFocusCommentId(null)
+      setTaskDrawer(data)
+    }
+    showToast('Đã tạo Task')
+    return {ok:true,task:data}
+  }
+
+
   // ===================================================
   // UPDATE TASK
   // ===================================================
@@ -2559,6 +2634,68 @@ export default function Home(){
 
   return <div className="appShell">
 
+    <style jsx global>{`
+      .mobileProjectActions,.mobileProjectMenu{display:none}
+      .projectHeaderActions{display:flex;align-items:center;gap:10px;position:relative}
+      .quickAddSave{margin-left:8px;white-space:nowrap}
+      .taskCreateSticky{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
+
+      @media (max-width: 760px){
+        html,body{overflow-x:hidden}
+        .appShell{display:block!important;min-width:0!important}
+        .sidebar{display:none!important}
+        .main{margin-left:0!important;width:100%!important;min-width:0!important}
+        .topbar{padding:10px 14px!important;gap:8px!important;position:sticky!important;top:0!important;z-index:500!important;background:#fff!important}
+        .topbar>div:first-child{min-width:0!important;overflow:hidden!important;white-space:nowrap!important;text-overflow:ellipsis!important}
+        .page{padding:18px 14px 96px!important;min-width:0!important}
+        .projectPage{padding-top:16px!important}
+        .projectHeader{display:grid!important;grid-template-columns:52px minmax(0,1fr) auto!important;gap:12px!important;align-items:start!important}
+        .projectHeader .grow{min-width:0!important;width:100%!important}
+        .projectHeader h1{font-size:28px!important;line-height:1.12!important;margin:4px 0 8px!important;word-break:normal!important;overflow-wrap:anywhere!important}
+        .projectHeader .desc{font-size:15px!important;line-height:1.45!important;max-width:none!important;white-space:normal!important;overflow:visible!important;display:-webkit-box!important;-webkit-line-clamp:4!important;-webkit-box-orient:vertical!important;overflow:hidden!important}
+        .projectHeaderActions{align-self:start!important}
+        .desktopProjectAction{display:none!important}
+        .mobileProjectMenu{display:block!important;position:relative!important}
+        .mobileProjectMenuPopover{position:absolute;right:0;top:44px;z-index:1400;min-width:180px;background:#fff;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 16px 35px rgba(15,23,42,.18);padding:6px}
+        .mobileProjectMenuPopover button{display:block;width:100%;border:0;background:#fff;text-align:left;padding:11px;border-radius:8px;font-size:15px}
+        .tabs{display:flex!important;overflow-x:auto!important;overflow-y:hidden!important;white-space:nowrap!important;gap:8px!important;-webkit-overflow-scrolling:touch!important;padding-bottom:3px!important;scrollbar-width:none!important}
+        .tabs::-webkit-scrollbar{display:none!important}
+        .tabs button{flex:0 0 auto!important;padding:12px 14px!important}
+        .statGrid{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:10px!important}
+        .overviewGrid{grid-template-columns:1fr!important}
+        .panel{border-radius:14px!important;min-width:0!important}
+        .taskToolbar{display:block!important;padding:12px!important}
+        .taskToolbar>input{width:100%!important;box-sizing:border-box!important;margin-bottom:10px!important}
+        .chips{display:flex!important;overflow-x:auto!important;gap:8px!important;white-space:nowrap!important;padding-bottom:3px!important;scrollbar-width:none!important}
+        .chips::-webkit-scrollbar{display:none!important}
+        .chips button{flex:0 0 auto!important}
+        .createTaskButton{background:#f97316!important;color:#fff!important;border-color:#f97316!important}
+        .taskHeader{display:none!important}
+        .taskRow{display:grid!important;grid-template-columns:42px minmax(0,1fr)!important;gap:8px!important;padding:14px 12px!important;border-top:1px solid #edf0f3!important;align-items:start!important}
+        .taskRow>.check{grid-column:1!important;grid-row:1!important}
+        .taskRow>.taskTitle{grid-column:2!important;grid-row:1!important;min-width:0!important;text-align:left!important}
+        .taskRow>div,.taskRow>input,.taskRow>select{display:none!important}
+        .taskTitle b{font-size:17px!important;white-space:normal!important;word-break:break-word!important}
+        .taskTitle small{margin-top:4px!important}
+        .quickAdd{display:grid!important;grid-template-columns:auto minmax(0,1fr) auto!important;gap:8px!important;padding:12px!important;position:sticky!important;bottom:70px!important;background:#fff!important;z-index:80!important;border-top:1px solid #edf0f3!important}
+        .quickAdd input{min-width:0!important;width:100%!important}
+        .quickAddSave{margin-left:0!important;padding:10px 14px!important}
+        .mobileProjectActions{display:flex!important;position:fixed!important;left:0!important;right:0!important;bottom:0!important;z-index:900!important;background:rgba(255,255,255,.96)!important;backdrop-filter:blur(12px)!important;border-top:1px solid #e5e7eb!important;padding:10px 14px calc(10px + env(safe-area-inset-bottom))!important;gap:10px!important}
+        .mobileProjectActions button{flex:1!important;min-height:46px!important;font-size:16px!important;font-weight:700!important}
+        .drawerWrap{align-items:flex-end!important;padding:0!important}
+        .drawer,.drawer.narrow{width:100%!important;max-width:none!important;height:auto!important;max-height:94dvh!important;border-radius:18px 18px 0 0!important;overflow:hidden!important}
+        .drawerHead{padding:14px 16px!important;position:sticky!important;top:0!important;background:#fff!important;z-index:20!important}
+        .drawerBody{padding:14px 16px calc(24px + env(safe-area-inset-bottom))!important;overflow-y:auto!important;max-height:calc(94dvh - 68px)!important}
+        .fieldGrid,.taskCreateGrid{grid-template-columns:1fr!important}
+        .field input,.field select,.field textarea,.fullInput{font-size:16px!important;min-height:46px!important;width:100%!important;box-sizing:border-box!important}
+        .taskCreateDrawer{height:94dvh!important;max-height:94dvh!important}
+        .taskCreateBody{padding-bottom:96px!important}
+        .taskCreateSticky{position:sticky!important;bottom:0!important;background:#fff!important;border-top:1px solid #e5e7eb!important;margin:18px -16px -24px!important;padding:12px 16px calc(12px + env(safe-area-inset-bottom))!important;z-index:30!important;display:grid!important;grid-template-columns:1fr 1.5fr!important}
+        .taskCreateSticky button{min-height:48px!important;font-size:16px!important;font-weight:700!important}
+        .notificationPopover{left:12px!important;right:12px!important;width:auto!important;max-width:none!important}
+      }
+    `}</style>
+
     <aside className="sidebar">
 
       <div className="brand">
@@ -2910,6 +3047,7 @@ export default function Home(){
           setQuickTitle={setQuickTitle}
 
           quickCreateTask={quickCreateTask}
+          createTaskDetailed={createTaskDetailed}
 
           canTask={canTask}
 
@@ -3527,6 +3665,7 @@ function ProjectPage({
   setQuickTitle,
 
   quickCreateTask,
+  createTaskDetailed,
   canTask,
 
   members,
@@ -3560,6 +3699,8 @@ function ProjectPage({
     useState(null)
 
   const [projectEditOpen,setProjectEditOpen]=useState(false)
+  const [taskCreateOpen,setTaskCreateOpen]=useState(false)
+  const [mobileMenuOpen,setMobileMenuOpen]=useState(false)
 
 
   const canManageProjectMembers=
@@ -3642,13 +3783,7 @@ function ProjectPage({
       </div>
 
 
-      <div
-        style={{
-          display:'flex',
-          alignItems:'center',
-          gap:10
-        }}
-      >
+      <div className="projectHeaderActions">
 
         <span
           className={
@@ -3668,7 +3803,7 @@ function ProjectPage({
         {canEditProject &&
           <button
             type="button"
-            className="secondary"
+            className="secondary desktopProjectAction"
             onClick={()=>setProjectEditOpen(true)}
           >
             ✎ Sửa Project
@@ -3678,13 +3813,21 @@ function ProjectPage({
         {canCancelProject &&
           <button
             type="button"
-            className="secondary"
+            className="secondary desktopProjectAction"
             onClick={onCancelProject}
             title="Hủy Project tạo nhầm hoặc không còn sử dụng"
           >
             Hủy Project
           </button>
         }
+
+        {(canEditProject||canCancelProject) && <div className="mobileProjectMenu">
+          <button type="button" className="secondary" onClick={()=>setMobileMenuOpen(v=>!v)}>⋯</button>
+          {mobileMenuOpen && <div className="mobileProjectMenuPopover">
+            {canEditProject && <button type="button" onClick={()=>{setMobileMenuOpen(false);setProjectEditOpen(true)}}>✎ Sửa Project</button>}
+            {canCancelProject && <button type="button" onClick={()=>{setMobileMenuOpen(false);onCancelProject()}}>Hủy Project</button>}
+          </div>}
+        </div>}
 
       </div>
 
@@ -3943,35 +4086,6 @@ function ProjectPage({
             }
 
 
-            {projectMemberOpen &&
-              <ProjectMemberDrawer
-                project={project}
-
-                item={projectMemberEdit}
-
-                projectMembers={
-                  members
-                }
-
-                workspaceMembers={
-                  workspaceMembers||[]
-                }
-
-                onClose={()=>{
-                  setProjectMemberOpen(false)
-                  setProjectMemberEdit(null)
-                }}
-
-                onSaved={async()=>{
-
-                  setProjectMemberOpen(false)
-                  setProjectMemberEdit(null)
-
-                  await onProjectMembersChanged?.()
-                }}
-              />
-            }
-
           </div>
 
         </div>
@@ -4000,6 +4114,7 @@ function ProjectPage({
         quickCreateTask={
           quickCreateTask
         }
+        onCreateTask={()=>setTaskCreateOpen(true)}
 
         canTask={canTask}
 
@@ -4064,6 +4179,36 @@ function ProjectPage({
     }
 
   
+
+  {projectMemberOpen &&
+    <ProjectMemberDrawer
+      project={project}
+      item={projectMemberEdit}
+      projectMembers={members}
+      workspaceMembers={workspaceMembers||[]}
+      onClose={()=>{setProjectMemberOpen(false);setProjectMemberEdit(null)}}
+      onSaved={async()=>{
+        setProjectMemberOpen(false);setProjectMemberEdit(null)
+        await onProjectMembersChanged?.()
+      }}
+    />
+  }
+
+  <div className="mobileProjectActions">
+    {canTask && <button className="primary" onClick={()=>setTaskCreateOpen(true)}>＋ Task</button>}
+    {canManageProjectMembers && <button className="secondary" onClick={()=>{setProjectMemberEdit(null);setProjectMemberOpen(true)}}>＋ Member</button>}
+  </div>
+
+  {taskCreateOpen && <TaskCreateDrawer
+    project={project}
+    members={assignableTaskMembers||members}
+    onClose={()=>setTaskCreateOpen(false)}
+    onCreate={async form=>{
+      const result=await createTaskDetailed(form)
+      if(result?.ok)setTaskCreateOpen(false)
+      return result
+    }}
+  />}
 
   {projectEditOpen &&
     <ProjectEditDrawer
@@ -4157,6 +4302,7 @@ function TaskList({
   setQuickTitle,
 
   quickCreateTask,
+  onCreateTask,
 
   canTask,
 
@@ -4187,6 +4333,7 @@ function TaskList({
 
 
       <div className="chips">
+        {canTask && <button className="createTaskButton" onClick={onCreateTask}>＋ Tạo Task</button>}
 
         <button
           className={
@@ -4443,7 +4590,7 @@ function TaskList({
         </span>
 
         <input
-          placeholder="Thêm task và nhấn Enter..."
+          placeholder="Thêm nhanh task..."
 
           value={quickTitle}
 
@@ -4459,6 +4606,7 @@ function TaskList({
             quickCreateTask()
           }
         />
+        <button type="button" className="primary quickAddSave" disabled={!quickTitle.trim()} onClick={quickCreateTask}>Lưu</button>
 
       </div>
     }
@@ -6754,6 +6902,64 @@ function MemberDrawer({
 
 
 // =====================================================
+// MOBILE / FULL TASK CREATE DRAWER
+// =====================================================
+function TaskCreateDrawer({project,members,onClose,onCreate}){
+  const [form,setForm]=useState({
+    title:'',description:'',assignee_id:'',due_at:'',priority:'medium',delivery_url:''
+  })
+  const [saving,setSaving]=useState(false)
+  const [error,setError]=useState('')
+
+  async function submit(e){
+    e?.preventDefault?.()
+    if(!form.title.trim()){
+      setError('Vui lòng nhập tên Task.')
+      return
+    }
+    setSaving(true); setError('')
+    const result=await onCreate?.(form)
+    setSaving(false)
+    if(!result?.ok){
+      setError(result?.error||'Không tạo được Task.')
+    }
+  }
+
+  return <div className="drawerWrap mobileTaskCreate" onMouseDown={e=>e.target===e.currentTarget&&onClose()}>
+    <aside className="drawer taskCreateDrawer">
+      <div className="drawerHead">
+        <div><small>{project?.code}</small><h2 style={{margin:0}}>Tạo Task mới</h2></div>
+        <button type="button" onClick={onClose}>×</button>
+      </div>
+      <form className="drawerBody taskCreateBody" onSubmit={submit}>
+        <Field label="Tên Task *">
+          <input autoFocus className="fullInput" value={form.title} onChange={e=>setForm({...form,title:e.target.value})} placeholder="Ví dụ: Thiết kế KV Open Day" />
+        </Field>
+        <Field label="Mô tả / đầu ra cần bàn giao">
+          <textarea rows="5" value={form.description} onChange={e=>setForm({...form,description:e.target.value})} placeholder="Mô tả rõ yêu cầu, đầu ra, lưu ý..." />
+        </Field>
+        <Field label="Người phụ trách">
+          <SmartMemberPicker members={members||[]} value={form.assignee_id} onChange={id=>setForm({...form,assignee_id:id})} placeholder="Gõ tên, email, Team hoặc role..." emptyLabel="— Chưa assign —" />
+        </Field>
+        <div className="fieldGrid taskCreateGrid">
+          <Field label="Deadline"><input type="date" value={form.due_at} onChange={e=>setForm({...form,due_at:e.target.value})}/></Field>
+          <Field label="Priority"><select value={form.priority} onChange={e=>setForm({...form,priority:e.target.value})}>{Object.keys(PRIORITY).map(x=><option key={x} value={x}>{PRIORITY[x]}</option>)}</select></Field>
+        </div>
+        <Field label="Delivery URL">
+          <input className="fullInput" type="url" inputMode="url" value={form.delivery_url} onChange={e=>setForm({...form,delivery_url:e.target.value})} placeholder="https://drive.google.com/..." />
+        </Field>
+        {error&&<div className="errorBox">{error}</div>}
+        <div className="taskCreateSticky">
+          <button type="button" className="secondary" onClick={onClose} disabled={saving}>Hủy</button>
+          <button type="submit" className="primary" disabled={saving||!form.title.trim()}>{saving?'Đang tạo...':'Tạo & mở Task'}</button>
+        </div>
+      </form>
+    </aside>
+  </div>
+}
+
+
+// =====================================================
 // PROJECT MEMBER DRAWER
 // =====================================================
 
@@ -7034,6 +7240,8 @@ function ProjectMemberDrawer({
 
 
       <div className="drawerBody">
+
+        {!isEdit && <div className="mobileHelper" style={{marginBottom:10,color:'#6b7280',fontSize:13}}>Gõ tên, email, Team hoặc role để tìm nhanh thành viên.</div>}
 
         <Field label="Member">
 
