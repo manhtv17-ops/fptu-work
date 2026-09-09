@@ -133,7 +133,7 @@ export default function Home(){
   const [members,setMembers]=useState([])
   const [teams,setTeams]=useState([])
 
-  const [view,setView]=useState('projects')
+  const [view,setView]=useState('home')
   const [projectTab,setProjectTab]=useState('overview')
 
   const [taskDrawer,setTaskDrawer]=useState(null)
@@ -154,6 +154,7 @@ export default function Home(){
 
   const [notifications,setNotifications]=useState([])
   const [notificationOpen,setNotificationOpen]=useState(false)
+  const [mobileMoreOpen,setMobileMoreOpen]=useState(false)
   const [notificationPrefs,setNotificationPrefs]=useState(null)
 
   const [taskFilter,setTaskFilter]=useState('all')
@@ -2635,7 +2636,7 @@ export default function Home(){
   return <div className="appShell">
 
     <style jsx global>{`
-      .mobileProjectActions,.mobileProjectMenu{display:none}
+      .mobileProjectActions,.mobileProjectMenu,.mobileBottomNav,.mobileMoreMenu{display:none}
       .projectHeaderActions{display:flex;align-items:center;gap:10px;position:relative}
       .quickAddSave{margin-left:8px;white-space:nowrap}
       .taskCreateSticky{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
@@ -2693,6 +2694,22 @@ export default function Home(){
         .taskCreateSticky{position:sticky!important;bottom:0!important;background:#fff!important;border-top:1px solid #e5e7eb!important;margin:18px -16px -24px!important;padding:12px 16px calc(12px + env(safe-area-inset-bottom))!important;z-index:30!important;display:grid!important;grid-template-columns:1fr 1.5fr!important}
         .taskCreateSticky button{min-height:48px!important;font-size:16px!important;font-weight:700!important}
         .notificationPopover{left:12px!important;right:12px!important;width:auto!important;max-width:none!important}
+        .mobileBottomNav{display:grid!important;grid-template-columns:repeat(5,1fr)!important;position:fixed!important;left:0!important;right:0!important;bottom:0!important;z-index:1000!important;background:rgba(255,255,255,.98)!important;backdrop-filter:blur(14px)!important;border-top:1px solid #dbe5f0!important;padding:7px 6px calc(7px + env(safe-area-inset-bottom))!important;box-shadow:0 -8px 28px rgba(15,57,104,.08)!important}
+        .mobileBottomNav button{border:0!important;background:transparent!important;color:#64748b!important;display:flex!important;flex-direction:column!important;align-items:center!important;justify-content:center!important;gap:3px!important;font-size:11px!important;font-weight:700!important;min-height:48px!important;padding:3px!important}
+        .mobileBottomNav button span:first-child{font-size:21px!important;line-height:1!important}
+        .mobileBottomNav button.active{color:#1367d1!important}
+        .mobileMoreMenu{display:block!important;position:fixed!important;left:12px!important;right:12px!important;bottom:76px!important;z-index:1100!important;background:#fff!important;border:1px solid #dbe5f0!important;border-radius:18px!important;box-shadow:0 20px 50px rgba(15,57,104,.22)!important;padding:8px!important}
+        .mobileMoreMenu button{display:flex!important;width:100%!important;align-items:center!important;gap:10px!important;border:0!important;background:#fff!important;text-align:left!important;padding:13px 14px!important;border-radius:12px!important;font-size:15px!important;font-weight:700!important;color:#1e293b!important}
+        .mobileMoreMenu button:active{background:#eff6ff!important}
+        .mobileProjectActions{bottom:66px!important}
+        .quickAdd{bottom:136px!important}
+        .page{padding-bottom:150px!important}
+        .homeHero{border-radius:22px!important;padding:20px!important}
+        .homeHero h1{font-size:29px!important}
+        .homeKpiGrid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+        .homeTwoCol{grid-template-columns:1fr!important}
+        .birthdayHero{padding:20px!important;border-radius:22px!important}
+        .birthdayHero h2{font-size:25px!important}
       }
     `}</style>
 
@@ -3101,6 +3118,10 @@ export default function Home(){
         <HomeDashboard
           projects={projects}
           members={members}
+          teams={teams}
+          profile={profile}
+          membership={membership}
+          onNavigate={(next)=>{setMobileMoreOpen(false);setView(next)}}
         />
       }
 
@@ -3186,6 +3207,21 @@ export default function Home(){
           }}
         />
       }
+
+      {mobileMoreOpen && <div className="mobileMoreMenu">
+        <button onClick={()=>{setMobileMoreOpen(false);setView('teams')}}>♟ Teams</button>
+        {canManageWorkspace(membership) && <button onClick={()=>{setMobileMoreOpen(false);setView('members')}}>♙ Members & Permissions</button>}
+        <button onClick={()=>{setMobileMoreOpen(false);setProfileEditOpen(true)}}>☺ Hồ sơ cá nhân</button>
+        <button onClick={()=>{setMobileMoreOpen(false);setNotificationOpen(true)}}>🔔 Notifications</button>
+      </div>}
+
+      <nav className="mobileBottomNav">
+        <button className={view==='home'?'active':''} onClick={()=>{setMobileMoreOpen(false);setView('home')}}><span>⌂</span><span>Home</span></button>
+        <button className={view==='mytasks'?'active':''} onClick={()=>{setMobileMoreOpen(false);setView('mytasks')}}><span>✓</span><span>My Tasks</span></button>
+        <button className={(view==='projects'||view==='project')?'active':''} onClick={()=>{setMobileMoreOpen(false);setView('projects');setProject(null)}}><span>▦</span><span>Projects</span></button>
+        <button className={view==='reports'?'active':''} onClick={()=>{setMobileMoreOpen(false);setView('reports')}}><span>▥</span><span>Reports</span></button>
+        <button className={mobileMoreOpen||view==='teams'||view==='members'?'active':''} onClick={()=>setMobileMoreOpen(v=>!v)}><span>•••</span><span>More</span></button>
+      </nav>
 
     </main>
 
@@ -5855,62 +5891,115 @@ function projectMapSafe(projects,id,fallback){
 
 function HomeDashboard({
   projects,
-  members
+  members,
+  teams,
+  profile,
+  membership,
+  onNavigate
 }){
+  const [taskRows,setTaskRows]=useState([])
 
-  return <section className="page">
+  useEffect(()=>{
+    let alive=true
+    supabase
+      .from('tasks')
+      .select('id,status,due_at,priority,project_id,assignee_id,created_at,completed_at')
+      .is('archived_at',null)
+      .then(({data})=>{if(alive)setTaskRows(data||[])})
+    return()=>{alive=false}
+  },[projects?.length,membership?.user_id])
 
-    <div className="pageHead">
+  const now=new Date()
+  const todayStart=new Date(now.getFullYear(),now.getMonth(),now.getDate()).getTime()
+  const isDone=t=>t.status==='done'
+  const overdue=taskRows.filter(t=>t.due_at&&!isDone(t)&&new Date(t.due_at).getTime()<todayStart)
+  const review=taskRows.filter(t=>t.status==='review')
+  const activeTasks=taskRows.filter(t=>['todo','in_progress'].includes(t.status))
+  const high=taskRows.filter(t=>['urgent','high'].includes(t.priority)&&!isDone(t))
+  const atRisk=(projects||[]).filter(p=>p.health==='at_risk')
 
-      <div>
+  const birthdayRows=(members||[])
+    .map(m=>({
+      member:m,
+      name:m.profiles?.full_name||m.profiles?.email||'Thành viên',
+      avatar:m.profiles,
+      birth:m.profiles?.birth_date
+    }))
+    .filter(x=>x.birth)
+    .map(x=>{
+      const d=new Date(x.birth+'T00:00:00')
+      let next=new Date(now.getFullYear(),d.getMonth(),d.getDate())
+      const today=new Date(now.getFullYear(),now.getMonth(),now.getDate())
+      if(next<today) next=new Date(now.getFullYear()+1,d.getMonth(),d.getDate())
+      return {...x,next,days:Math.round((next-today)/(24*60*60*1000))}
+    })
+    .sort((a,b)=>a.days-b.days)
 
-        <h1>
-          Home
-        </h1>
+  const todayBirthdays=birthdayRows.filter(x=>x.days===0)
+  const upcoming=birthdayRows.filter(x=>x.days>0&&x.days<=7).slice(0,6)
+  const birthdayLead=todayBirthdays[0]
 
-        <p>
-          Tổng quan Workspace.
-        </p>
+  const hour=now.getHours()
+  const greeting=hour<11?'Chào buổi sáng':hour<18?'Chào buổi chiều':'Chào buổi tối'
+  const displayName=(profile?.full_name||profile?.email||'').split(' ')[0]||'bạn'
 
+  const kpis=[
+    {label:'Project',value:(projects||[]).length,icon:'▦',accent:'#1367d1',bg:'#eff6ff',go:'projects'},
+    {label:'Task cần làm',value:activeTasks.length,icon:'✓',accent:'#0b70d8',bg:'#eaf5ff',go:'mytasks'},
+    {label:'Trễ hạn',value:overdue.length,icon:'!',accent:'#ef6c00',bg:'#fff4e8',go:'reports'},
+    {label:'Chờ Review',value:review.length,icon:'◷',accent:'#7c3aed',bg:'#f5f3ff',go:'reports'},
+    {label:'Priority cao',value:high.length,icon:'↑',accent:'#f97316',bg:'#fff7ed',go:'mytasks'},
+    {label:'At risk',value:atRisk.length,icon:'⚠',accent:'#dc2626',bg:'#fff1f2',go:'reports'}
+  ]
+
+  return <section className="page" style={{background:'linear-gradient(180deg,#f7fbff 0%,#ffffff 52%,#fffaf5 100%)',minHeight:'calc(100vh - 64px)'}}>
+    <div className="homeHero" style={{background:'linear-gradient(120deg,#0f5fb8 0%,#1976d2 55%,#ff8a24 150%)',color:'#fff',padding:'26px 28px',borderRadius:26,boxShadow:'0 20px 50px rgba(17,92,164,.18)',marginBottom:18,position:'relative',overflow:'hidden'}}>
+      <div style={{position:'absolute',right:-35,top:-45,width:180,height:180,borderRadius:'50%',background:'rgba(255,255,255,.10)'}}/>
+      <div style={{position:'absolute',right:95,bottom:-70,width:150,height:150,borderRadius:'50%',background:'rgba(255,145,43,.28)'}}/>
+      <div style={{position:'relative',zIndex:2}}>
+        <div style={{fontWeight:700,opacity:.9}}>{greeting},</div>
+        <h1 style={{margin:'4px 0 7px',fontSize:36,lineHeight:1.1,color:'#fff'}}>{displayName} 👋</h1>
+        <p style={{margin:0,opacity:.92,maxWidth:720}}>Đây là tình hình công việc của team hôm nay. Ưu tiên xử lý task trễ hạn, việc quan trọng và các đầu việc đang chờ Review.</p>
+      </div>
+    </div>
+
+    {birthdayLead && <div className="birthdayHero" style={{position:'relative',overflow:'hidden',background:'linear-gradient(120deg,#fff 0%,#fff7ed 52%,#eaf5ff 100%)',border:'1px solid #ffd6ad',borderRadius:24,padding:'24px 26px',marginBottom:18,boxShadow:'0 15px 40px rgba(245,124,0,.12)'}}>
+      <div style={{position:'absolute',inset:0,pointerEvents:'none',opacity:.65,backgroundImage:'radial-gradient(circle at 10% 20%,#ff9a3d 0 3px,transparent 4px),radial-gradient(circle at 90% 25%,#2d83da 0 3px,transparent 4px),radial-gradient(circle at 75% 75%,#ffb45e 0 4px,transparent 5px),radial-gradient(circle at 20% 80%,#60a5fa 0 3px,transparent 4px)'}}/>
+      <div style={{position:'relative',display:'flex',alignItems:'center',gap:16}}>
+        <div style={{width:72,height:72,borderRadius:22,background:'#fff',display:'grid',placeItems:'center',boxShadow:'0 8px 24px rgba(15,95,184,.12)',flex:'0 0 auto'}}><Avatar p={birthdayLead.avatar}/></div>
+        <div><div style={{fontWeight:900,color:'#f97316',letterSpacing:.5}}>🎉 HAPPY BIRTHDAY</div><h2 style={{margin:'4px 0',color:'#0f5fb8'}}>Chúc mừng sinh nhật {birthdayLead.name} 🎂</h2><p style={{margin:0,color:'#475569'}}>Chúc một tuổi mới nhiều năng lượng, nhiều niềm vui và thật nhiều project thành công!</p></div>
+      </div>
+    </div>}
+
+    {!birthdayLead && upcoming[0] && upcoming[0].days<=3 && <div style={{background:'#fff7ed',border:'1px solid #fed7aa',borderRadius:16,padding:'13px 16px',marginBottom:16,color:'#9a4b00',fontWeight:700}}>🎂 {upcoming[0].days} ngày nữa là sinh nhật <b>{upcoming[0].name}</b>.</div>}
+
+    <div className="homeKpiGrid" style={{display:'grid',gridTemplateColumns:'repeat(6,minmax(120px,1fr))',gap:12,marginBottom:18}}>
+      {kpis.map(k=><button key={k.label} onClick={()=>onNavigate?.(k.go)} style={{textAlign:'left',border:'1px solid #e2e8f0',background:'#fff',borderRadius:18,padding:'15px 16px',cursor:'pointer',boxShadow:'0 8px 24px rgba(15,57,104,.05)'}}><div style={{width:38,height:38,borderRadius:12,display:'grid',placeItems:'center',background:k.bg,color:k.accent,fontSize:20,fontWeight:900,marginBottom:10}}>{k.icon}</div><b style={{display:'block',fontSize:25,color:'#0f2847'}}>{k.value}</b><small style={{color:'#64748b',fontWeight:700}}>{k.label}</small></button>)}
+    </div>
+
+    <div className="homeTwoCol" style={{display:'grid',gridTemplateColumns:'1.25fr .75fr',gap:14}}>
+      <div className="panel" style={{padding:18,border:'1px solid #dce7f4',boxShadow:'0 10px 30px rgba(15,57,104,.05)'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,marginBottom:8}}><div><h3 style={{margin:0,color:'#123a63'}}>Cần chú ý</h3><small>Những tín hiệu nên xử lý trước.</small></div><button className="secondary" onClick={()=>onNavigate?.('reports')}>Xem Reports</button></div>
+        {[
+          {t:`${overdue.length} task đang trễ hạn`,c:'#dc2626',show:overdue.length>0},
+          {t:`${review.length} task đang chờ Review`,c:'#7c3aed',show:review.length>0},
+          {t:`${atRisk.length} Project đang At risk`,c:'#f97316',show:atRisk.length>0},
+          {t:`${high.length} task High/Urgent chưa hoàn thành`,c:'#0f5fb8',show:high.length>0}
+        ].filter(x=>x.show).map(x=><div key={x.t} style={{display:'flex',gap:10,alignItems:'center',padding:'11px 0',borderBottom:'1px solid #edf2f7'}}><span style={{width:10,height:10,borderRadius:'50%',background:x.c}}/><b style={{color:'#334155'}}>{x.t}</b></div>)}
+        {!overdue.length&&!review.length&&!atRisk.length&&!high.length&&<div className="empty">Không có cảnh báo nổi bật. Team đang vận hành khá ổn.</div>}
       </div>
 
+      <div className="panel" style={{padding:18,border:'1px solid #ffe0bf',boxShadow:'0 10px 30px rgba(245,124,0,.05)'}}>
+        <h3 style={{margin:'0 0 10px',color:'#c75d00'}}>🎂 Sinh nhật sắp tới</h3>
+        {upcoming.length?upcoming.map(x=><div key={x.member.user_id} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 0',borderBottom:'1px solid #fff0e1'}}><Avatar p={x.avatar}/><div style={{minWidth:0,flex:1}}><b style={{display:'block',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{x.name}</b><small>{x.days===1?'Ngày mai':`${x.days} ngày nữa`} · {String(x.next.getDate()).padStart(2,'0')}/{String(x.next.getMonth()+1).padStart(2,'0')}</small></div></div>):<div className="empty">7 ngày tới chưa có sinh nhật thành viên.</div>}
+      </div>
     </div>
 
-
-    <div className="statGrid">
-
-      <Stat
-        label="Projects"
-        value={projects.length}
-      />
-
-      <Stat
-        label="Active"
-        value={
-          projects.filter(
-            p=>
-              p.status==='active'
-          ).length
-        }
-      />
-
-      <Stat
-        label="Members"
-        value={members.length}
-      />
-
-      <Stat
-        label="At risk"
-        value={
-          projects.filter(
-            p=>
-              p.health==='at_risk'
-          ).length
-        }
-      />
-
+    <div style={{marginTop:14,display:'flex',gap:10,flexWrap:'wrap'}}>
+      <button className="primary" onClick={()=>onNavigate?.('mytasks')}>✓ Mở My Tasks</button>
+      <button className="secondary" onClick={()=>onNavigate?.('projects')}>▦ Xem Projects</button>
+      <button className="secondary" onClick={()=>onNavigate?.('reports')}>▥ Management Reports</button>
     </div>
-
   </section>
 }
 
