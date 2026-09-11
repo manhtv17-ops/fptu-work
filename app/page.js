@@ -2046,6 +2046,23 @@ export default function Home(){
     patch
   ){
 
+    if(Object.prototype.hasOwnProperty.call(patch,'delivery_url')){
+      const raw=(patch.delivery_url||'').trim()
+      if(raw){
+        try{
+          const u=new URL(raw)
+          if(!['http:','https:'].includes(u.protocol)){
+            alert('URL không hợp lệ. Link phải bắt đầu bằng http:// hoặc https://')
+            return
+          }
+        }catch{
+          alert('URL không hợp lệ. Link phải bắt đầu bằng http:// hoặc https://')
+          return
+        }
+      }
+      patch={...patch,delivery_url:raw||null}
+    }
+
     if(
       Object.prototype
         .hasOwnProperty
@@ -2722,6 +2739,7 @@ export default function Home(){
       .taskMenuPopover button:hover{background:#f8fafc}
       .taskMenuPopover .danger{color:#b42318;font-weight:700}
       .taskArchiveHint{font-size:12px;line-height:1.4;color:#64748b;padding:8px 10px 4px}
+      .kanbanMobileStatus{display:none}
 
       @media (max-width: 760px){
         html,body{overflow-x:hidden}
@@ -2765,15 +2783,18 @@ export default function Home(){
         .quickAddSave{margin-left:0!important;padding:10px 14px!important}
         .mobileProjectActions{display:flex!important;position:fixed!important;left:0!important;right:0!important;bottom:0!important;z-index:900!important;background:rgba(255,255,255,.96)!important;backdrop-filter:blur(12px)!important;border-top:1px solid #e5e7eb!important;padding:10px 14px calc(10px + env(safe-area-inset-bottom))!important;gap:10px!important}
         .mobileProjectActions button{flex:1!important;min-height:46px!important;font-size:16px!important;font-weight:700!important}
-        .drawerWrap{align-items:flex-end!important;padding:0!important;z-index:2500!important;background:rgba(15,23,42,.35)!important;overscroll-behavior:contain!important;touch-action:pan-y!important}
-        .drawerWrap .drawer{position:relative!important;z-index:2501!important}
-        .drawerBody{overscroll-behavior:contain!important;-webkit-overflow-scrolling:touch!important}
+        body:has(.drawerWrap){overflow:hidden!important;overscroll-behavior:none!important}
+        .drawerWrap{position:fixed!important;inset:0!important;width:100vw!important;height:100dvh!important;display:flex!important;align-items:flex-end!important;padding:0!important;z-index:2500!important;background:rgba(15,23,42,.35)!important;overscroll-behavior:contain!important;touch-action:none!important}
+        .drawerWrap .drawer{position:relative!important;z-index:2501!important;display:flex!important;flex-direction:column!important;width:100%!important;height:100dvh!important;max-height:100dvh!important;border-radius:0!important;background:#fff!important}
+        .drawerBody{flex:1 1 auto!important;min-height:0!important;overflow-y:auto!important;overscroll-behavior:contain!important;-webkit-overflow-scrolling:touch!important;touch-action:pan-y!important;padding-bottom:calc(120px + env(safe-area-inset-bottom))!important}
+        .appShell:has(.drawerWrap) .mobileProjectActions,.appShell:has(.drawerWrap) .mobileBottomNav{display:none!important}
         .mobileProjectActions,.mobileBottomNav{transition:opacity .15s ease!important}
         .reportTabs{display:flex!important;gap:8px!important;overflow-x:auto!important;flex-wrap:nowrap!important;white-space:nowrap!important;padding-bottom:4px!important;scrollbar-width:none!important}
         .reportTabs::-webkit-scrollbar{display:none!important}
         .reportTabs button{flex:0 0 auto!important}
-        .reportFilters{display:grid!important;grid-template-columns:1fr!important;gap:9px!important}
-        .reportFilters input,.reportFilters select{width:100%!important;min-width:0!important;font-size:16px!important;min-height:46px!important}
+        .reportFilters{display:flex!important;gap:9px!important;overflow-x:auto!important;overflow-y:hidden!important;flex-wrap:nowrap!important;padding:2px 0 8px!important;scrollbar-width:none!important;-webkit-overflow-scrolling:touch!important;scroll-snap-type:x proximity!important}
+        .reportFilters::-webkit-scrollbar{display:none!important}
+        .reportFilters input,.reportFilters select{flex:0 0 210px!important;width:210px!important;min-width:210px!important;font-size:16px!important;min-height:46px!important;scroll-snap-align:start!important}
         .reportQuick{display:flex!important;gap:8px!important;overflow-x:auto!important;flex-wrap:nowrap!important;white-space:nowrap!important;padding-bottom:4px!important;scrollbar-width:none!important}
         .reportQuick::-webkit-scrollbar{display:none!important}
         .reportQuick button,.reportQuick select{flex:0 0 auto!important}
@@ -2782,7 +2803,7 @@ export default function Home(){
         .reportWorkloadGrid{grid-template-columns:1fr!important}
         .reportTableWrap{overflow-x:auto!important;-webkit-overflow-scrolling:touch!important;max-width:100%!important}
         .reportTableWrap table{min-width:820px!important}
-        .mobileStickyAction{position:sticky!important;bottom:0!important;z-index:40!important;background:#fff!important;border-top:1px solid #e5e7eb!important;margin:16px -16px -24px!important;padding:12px 16px calc(12px + env(safe-area-inset-bottom))!important}
+        .mobileStickyAction{position:sticky!important;bottom:0!important;z-index:2605!important;background:#fff!important;border-top:1px solid #e5e7eb!important;margin:16px -16px calc(-120px - env(safe-area-inset-bottom))!important;padding:12px 16px calc(12px + env(safe-area-inset-bottom))!important;box-shadow:0 -8px 24px rgba(15,23,42,.08)!important}
         .mobileStickyAction button{min-height:48px!important;font-size:16px!important}
         .deliveryLinkRow{display:flex!important;gap:8px!important;align-items:center!important}
         .deliveryLinkRow input{min-width:0!important;flex:1!important}
@@ -2790,11 +2811,12 @@ export default function Home(){
         .kanban{display:flex!important;overflow-x:auto!important;gap:12px!important;padding-bottom:10px!important;scroll-snap-type:x proximity!important;-webkit-overflow-scrolling:touch!important}
         .kanbanCol{flex:0 0 86vw!important;max-width:360px!important;scroll-snap-align:start!important}
         .kanbanCard{cursor:pointer!important}
+        .kanbanMobileStatus{display:block!important;width:100%!important;margin-top:10px!important;min-height:42px!important;border:1px solid #cbd5e1!important;border-radius:10px!important;background:#fff!important;padding:8px 10px!important;font-size:15px!important}
         .mobileTaskMeta{display:flex!important;flex-wrap:wrap!important;gap:6px!important;margin-top:8px!important}
         .mobileTaskMeta span{display:inline-flex!important;align-items:center!important;border:1px solid #e5e7eb!important;border-radius:999px!important;padding:4px 7px!important;font-size:12px!important;background:#fff!important}
         .taskRow>.taskTitle{padding-right:0!important}
 
-        .drawer,.drawer.narrow{width:100%!important;max-width:none!important;height:auto!important;max-height:94dvh!important;border-radius:18px 18px 0 0!important;overflow:hidden!important}
+        .drawer,.drawer.narrow{width:100%!important;max-width:none!important;height:100dvh!important;max-height:100dvh!important;border-radius:0!important;overflow:hidden!important}
         .drawerHead{padding:14px 16px!important;position:sticky!important;top:0!important;background:#fff!important;z-index:20!important}
         .drawerHead>div:first-child{min-width:0!important;flex:1!important}
         .drawerTitle{font-size:21px!important;line-height:1.25!important;min-width:0!important;width:100%!important}
@@ -2803,12 +2825,12 @@ export default function Home(){
         .taskMenuPopover{position:fixed!important;left:12px!important;right:12px!important;top:auto!important;bottom:calc(82px + env(safe-area-inset-bottom))!important;min-width:0!important;border-radius:18px!important;padding:8px!important;box-shadow:0 24px 60px rgba(15,23,42,.28)!important}
         .taskMenuPopover button{min-height:50px!important;font-size:16px!important;padding:13px 14px!important}
         .taskMenuPopover .taskArchiveHint{font-size:13px!important;padding:9px 12px!important}
-        .drawerBody{padding:14px 16px calc(24px + env(safe-area-inset-bottom))!important;overflow-y:auto!important;max-height:calc(94dvh - 68px)!important}
+        .drawerBody{padding:14px 16px calc(120px + env(safe-area-inset-bottom))!important;overflow-y:auto!important;max-height:none!important}
         .fieldGrid,.taskCreateGrid{grid-template-columns:1fr!important}
         .field input,.field select,.field textarea,.fullInput{font-size:16px!important;min-height:46px!important;width:100%!important;box-sizing:border-box!important}
-        .taskCreateDrawer{height:94dvh!important;max-height:94dvh!important}
-        .taskCreateBody{padding-bottom:96px!important}
-        .taskCreateSticky{position:sticky!important;bottom:0!important;background:#fff!important;border-top:1px solid #e5e7eb!important;margin:18px -16px -24px!important;padding:12px 16px calc(12px + env(safe-area-inset-bottom))!important;z-index:30!important;display:grid!important;grid-template-columns:1fr 1.5fr!important}
+        .taskCreateDrawer{height:100dvh!important;max-height:100dvh!important}
+        .taskCreateBody{padding-bottom:calc(120px + env(safe-area-inset-bottom))!important}
+        .taskCreateSticky{position:sticky!important;bottom:0!important;background:#fff!important;border-top:1px solid #e5e7eb!important;margin:18px -16px calc(-120px - env(safe-area-inset-bottom))!important;padding:12px 16px calc(12px + env(safe-area-inset-bottom))!important;z-index:2605!important;display:grid!important;grid-template-columns:1fr 1.5fr!important;box-shadow:0 -8px 24px rgba(15,23,42,.08)!important}
         .taskCreateSticky button{min-height:48px!important;font-size:16px!important;font-weight:700!important}
         .notificationPopover{left:12px!important;right:12px!important;width:auto!important;max-width:none!important}
         .mobileBottomNav{display:grid!important;grid-template-columns:repeat(5,1fr)!important;position:fixed!important;left:0!important;right:0!important;bottom:0!important;z-index:1000!important;background:rgba(255,255,255,.98)!important;backdrop-filter:blur(14px)!important;border-top:1px solid #dbe5f0!important;padding:7px 6px calc(7px + env(safe-area-inset-bottom))!important;box-shadow:0 -8px 28px rgba(15,57,104,.08)!important}
@@ -4905,6 +4927,19 @@ function Kanban({
 
                   </div>
 
+                  <select
+                    className="kanbanMobileStatus"
+                    value={t.status}
+                    aria-label="Chuyển trạng thái task"
+                    onClick={e=>e.stopPropagation()}
+                    onChange={e=>{
+                      e.stopPropagation()
+                      updateTask(t.id,{status:e.target.value})
+                    }}
+                  >
+                    {STATUS.map(s=><option key={s} value={s}>{LABEL[s]}</option>)}
+                  </select>
+
                 </div>
             )
           }
@@ -5563,7 +5598,7 @@ function TaskDrawer({
               )
             }
           />
-          {/^(https?:\/\/)/i.test(task.delivery_url||'')&&<a className="secondary deliveryOpenBtn" href={task.delivery_url} target="_blank" rel="noreferrer">Mở ↗</a>}
+          {/^(https?:\/\/)/i.test(task.delivery_url||'')&&<button type="button" className="secondary deliveryOpenBtn" onClick={()=>window.open(task.delivery_url,'_blank','noopener,noreferrer')}>Mở ↗</button>}
           </div>
 
         </section>
@@ -7273,6 +7308,7 @@ function TaskCreateDrawer({project,members,onClose,onCreate}){
         <button type="button" onClick={onClose}>×</button>
       </div>
       <form className="drawerBody taskCreateBody" onSubmit={submit}>
+        <div style={{fontSize:12,color:'#64748b',marginBottom:10}}>Nháp được tự động lưu trên thiết bị này. Có thể đóng/mở lại form mà không mất nội dung.</div>
         <Field label="Tên Task *">
           <input autoFocus className="fullInput" value={form.title} onChange={e=>setForm({...form,title:e.target.value})} placeholder="Ví dụ: Thiết kế KV Open Day" />
         </Field>
@@ -7289,7 +7325,7 @@ function TaskCreateDrawer({project,members,onClose,onCreate}){
         <Field label="Delivery URL">
           <div className="deliveryLinkRow">
             <input className="fullInput" type="url" inputMode="url" value={form.delivery_url} onChange={e=>setForm({...form,delivery_url:e.target.value})} placeholder="https://drive.google.com/..." />
-            {validHttpUrl(form.delivery_url)&&form.delivery_url.trim()&&<a className="secondary deliveryOpenBtn" href={form.delivery_url.trim()} target="_blank" rel="noreferrer">Mở ↗</a>}
+            {validHttpUrl(form.delivery_url)&&form.delivery_url.trim()&&<button type="button" className="secondary deliveryOpenBtn" onClick={()=>window.open(form.delivery_url.trim(),'_blank','noopener,noreferrer')}>Mở ↗</button>}
           </div>
           {form.delivery_url.trim()&&!validHttpUrl(form.delivery_url)&&<small style={{color:'#b91c1c'}}>URL chưa hợp lệ.</small>}
         </Field>
@@ -7939,7 +7975,7 @@ function ProfileEditDrawer({profile,onClose,onSaved}){
         <Field label="Ngày sinh"><input className="fullInput" type="date" value={form.birth_date} onChange={e=>setForm({...form,birth_date:e.target.value})}/></Field>
         <Field label="Email đăng nhập"><input className="fullInput" value={profile?.email||''} disabled/></Field>
         {error&&<div className="errorBox">{error}</div>}
-        <button className="primary full" disabled={saving} onClick={save}>{saving?'Đang lưu...':'Lưu hồ sơ'}</button>
+        <div className="mobileStickyAction"><button className="primary full" disabled={saving} onClick={save}>{saving?'Đang lưu...':'Lưu hồ sơ'}</button></div>
       </div>
     </aside>
   </div>
@@ -7989,7 +8025,7 @@ function TeamEditDrawer({team,members,membership,onClose,onSaved}){
         </Field>
         {!isManager&&<small>Team Lead có thể sửa tên và mô tả Team. Chỉ Trưởng phòng được đổi mã hoặc Team Lead.</small>}
         {error&&<div className="errorBox">{error}</div>}
-        <button className="primary full" disabled={saving} onClick={save}>{saving?'Đang lưu...':'Lưu Team'}</button>
+        <div className="mobileStickyAction"><button className="primary full" disabled={saving} onClick={save}>{saving?'Đang lưu...':'Lưu Team'}</button></div>
       </div>
     </aside>
   </div>
@@ -8022,13 +8058,22 @@ function ProjectEditDrawer({project,workspaceMembers,membership,onClose,onSaved}
 
   function normalizeUrl(v){
     const x=(v||'').trim()
-    if(!x)return null
-    if(/^https?:\/\//i.test(x))return x
-    return 'https://'+x
+    return x||null
+  }
+
+  function isValidWebUrl(v){
+    const x=(v||'').trim()
+    if(!x)return true
+    try{
+      const u=new URL(x)
+      return ['http:','https:'].includes(u.protocol) && !!u.hostname
+    }catch{return false}
   }
 
   async function save(){
     if(!form.name.trim()){setError('Vui lòng nhập tên Project');return}
+    const links=[form.primary_link_url,form.link1_url,form.link2_url,form.link3_url]
+    if(links.some(v=>!isValidWebUrl(v))){setError('URL không hợp lệ. Link phải bắt đầu bằng http:// hoặc https://');return}
     setSaving(true);setError('')
     const {data,error}=await supabase.rpc('update_project_workspace_safe',{
       p_project_id:project.id,
@@ -9148,14 +9193,12 @@ function ProjectFiles({project,canManage}){
       const path=`${project.id}/${Date.now()}-${Math.random().toString(36).slice(2,8)}-${clean}`
       const {error:upErr}=await supabase.storage.from('project-files').upload(path,file,{upsert:false,contentType:file.type||undefined})
       if(upErr)throw upErr
-      const {data:{user}}=await supabase.auth.getUser()
-      const {error:metaErr}=await supabase.from('project_files').insert({
-        project_id:project.id,
-        file_name:file.name,
-        storage_path:path,
-        file_size:file.size,
-        mime_type:file.type||null,
-        uploaded_by:user?.id||null
+      const {error:metaErr}=await supabase.rpc('register_project_file_safe',{
+        p_project_id:project.id,
+        p_file_name:file.name,
+        p_storage_path:path,
+        p_file_size:file.size,
+        p_mime_type:file.type||null
       })
       if(metaErr){
         await supabase.storage.from('project-files').remove([path])
@@ -9180,7 +9223,7 @@ function ProjectFiles({project,canManage}){
     if(!confirm(`Xóa file "${row.file_name}" khỏi Project?`))return
     const {error:storageError}=await supabase.storage.from('project-files').remove([row.storage_path])
     if(storageError){alert('Không xóa được file: '+storageError.message);return}
-    const {error}=await supabase.from('project_files').delete().eq('id',row.id)
+    const {error}=await supabase.rpc('delete_project_file_metadata_safe',{p_file_id:row.id})
     if(error){alert('Đã xóa file khỏi Storage nhưng không xóa được metadata: '+error.message);return}
     setRows(v=>v.filter(x=>x.id!==row.id))
   }
