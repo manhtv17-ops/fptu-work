@@ -1063,7 +1063,8 @@ export default function Home(){
                 id:x.user_id,
                 full_name:x.full_name,
                 email:x.email,
-                avatar_url:x.avatar_url
+                avatar_url:x.avatar_url,
+                birth_date:x.birth_date||null
               },
 
               teams:
@@ -1999,11 +2000,18 @@ export default function Home(){
       return {ok:false,error:'Không tạo được Task: '+createError.message}
     }
 
+    const deliveryUrl=(form?.delivery_url||'').trim()
+    if(deliveryUrl){
+      try{
+        const u=new URL(deliveryUrl)
+        if(!['http:','https:'].includes(u.protocol)) return {ok:false,error:'Delivery URL không hợp lệ.'}
+      }catch{return {ok:false,error:'Delivery URL không hợp lệ. Link phải bắt đầu bằng http:// hoặc https://'} }
+    }
     const patch={
       description:(form?.description||'').trim()||null,
       priority:form?.priority||'medium',
       due_at:form?.due_at?new Date(form.due_at+'T17:00:00').toISOString():null,
-      delivery_url:(form?.delivery_url||'').trim()||null
+      delivery_url:deliveryUrl||null
     }
     const {error:updateError}=await supabase.from('tasks').update(patch).eq('id',taskId)
     if(updateError){
@@ -2757,7 +2765,35 @@ export default function Home(){
         .quickAddSave{margin-left:0!important;padding:10px 14px!important}
         .mobileProjectActions{display:flex!important;position:fixed!important;left:0!important;right:0!important;bottom:0!important;z-index:900!important;background:rgba(255,255,255,.96)!important;backdrop-filter:blur(12px)!important;border-top:1px solid #e5e7eb!important;padding:10px 14px calc(10px + env(safe-area-inset-bottom))!important;gap:10px!important}
         .mobileProjectActions button{flex:1!important;min-height:46px!important;font-size:16px!important;font-weight:700!important}
-        .drawerWrap{align-items:flex-end!important;padding:0!important}
+        .drawerWrap{align-items:flex-end!important;padding:0!important;z-index:2500!important;background:rgba(15,23,42,.35)!important;overscroll-behavior:contain!important;touch-action:pan-y!important}
+        .drawerWrap .drawer{position:relative!important;z-index:2501!important}
+        .drawerBody{overscroll-behavior:contain!important;-webkit-overflow-scrolling:touch!important}
+        .mobileProjectActions,.mobileBottomNav{transition:opacity .15s ease!important}
+        .reportTabs{display:flex!important;gap:8px!important;overflow-x:auto!important;flex-wrap:nowrap!important;white-space:nowrap!important;padding-bottom:4px!important;scrollbar-width:none!important}
+        .reportTabs::-webkit-scrollbar{display:none!important}
+        .reportTabs button{flex:0 0 auto!important}
+        .reportFilters{display:grid!important;grid-template-columns:1fr!important;gap:9px!important}
+        .reportFilters input,.reportFilters select{width:100%!important;min-width:0!important;font-size:16px!important;min-height:46px!important}
+        .reportQuick{display:flex!important;gap:8px!important;overflow-x:auto!important;flex-wrap:nowrap!important;white-space:nowrap!important;padding-bottom:4px!important;scrollbar-width:none!important}
+        .reportQuick::-webkit-scrollbar{display:none!important}
+        .reportQuick button,.reportQuick select{flex:0 0 auto!important}
+        .reportStatGrid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+        .reportTwoCol{grid-template-columns:1fr!important}
+        .reportWorkloadGrid{grid-template-columns:1fr!important}
+        .reportTableWrap{overflow-x:auto!important;-webkit-overflow-scrolling:touch!important;max-width:100%!important}
+        .reportTableWrap table{min-width:820px!important}
+        .mobileStickyAction{position:sticky!important;bottom:0!important;z-index:40!important;background:#fff!important;border-top:1px solid #e5e7eb!important;margin:16px -16px -24px!important;padding:12px 16px calc(12px + env(safe-area-inset-bottom))!important}
+        .mobileStickyAction button{min-height:48px!important;font-size:16px!important}
+        .deliveryLinkRow{display:flex!important;gap:8px!important;align-items:center!important}
+        .deliveryLinkRow input{min-width:0!important;flex:1!important}
+        .deliveryOpenBtn{flex:0 0 auto!important;min-height:46px!important;white-space:nowrap!important}
+        .kanban{display:flex!important;overflow-x:auto!important;gap:12px!important;padding-bottom:10px!important;scroll-snap-type:x proximity!important;-webkit-overflow-scrolling:touch!important}
+        .kanbanCol{flex:0 0 86vw!important;max-width:360px!important;scroll-snap-align:start!important}
+        .kanbanCard{cursor:pointer!important}
+        .mobileTaskMeta{display:flex!important;flex-wrap:wrap!important;gap:6px!important;margin-top:8px!important}
+        .mobileTaskMeta span{display:inline-flex!important;align-items:center!important;border:1px solid #e5e7eb!important;border-radius:999px!important;padding:4px 7px!important;font-size:12px!important;background:#fff!important}
+        .taskRow>.taskTitle{padding-right:0!important}
+
         .drawer,.drawer.narrow{width:100%!important;max-width:none!important;height:auto!important;max-height:94dvh!important;border-radius:18px 18px 0 0!important;overflow:hidden!important}
         .drawerHead{padding:14px 16px!important;position:sticky!important;top:0!important;background:#fff!important;z-index:20!important}
         .drawerHead>div:first-child{min-width:0!important;flex:1!important}
@@ -2779,7 +2815,7 @@ export default function Home(){
         .mobileBottomNav button{border:0!important;background:transparent!important;color:#64748b!important;display:flex!important;flex-direction:column!important;align-items:center!important;justify-content:center!important;gap:3px!important;font-size:11px!important;font-weight:700!important;min-height:48px!important;padding:3px!important}
         .mobileBottomNav button span:first-child{font-size:21px!important;line-height:1!important}
         .mobileBottomNav button.active{color:#1367d1!important}
-        .mobileMoreMenu{display:block!important;position:fixed!important;left:12px!important;right:12px!important;bottom:76px!important;z-index:1100!important;background:#fff!important;border:1px solid #dbe5f0!important;border-radius:18px!important;box-shadow:0 20px 50px rgba(15,57,104,.22)!important;padding:8px!important}
+        .mobileMoreMenu{display:block!important;position:fixed!important;left:12px!important;right:12px!important;bottom:calc(76px + env(safe-area-inset-bottom))!important;z-index:2200!important;max-height:65dvh!important;overflow-y:auto!important;background:#fff!important;border:1px solid #dbe5f0!important;border-radius:18px!important;box-shadow:0 20px 50px rgba(15,57,104,.22)!important;padding:8px!important}
         .mobileMoreMenu button{display:flex!important;width:100%!important;align-items:center!important;gap:10px!important;border:0!important;background:#fff!important;text-align:left!important;padding:13px 14px!important;border-radius:12px!important;font-size:15px!important;font-weight:700!important;color:#1e293b!important}
         .mobileMoreMenu button:active{background:#eff6ff!important}
         .mobileProjectActions{bottom:66px!important}
@@ -4597,6 +4633,12 @@ function TaskList({
             <small>
               {t.code}
             </small>
+            <span className="mobileTaskMeta">
+              <span>{LABEL[t.status]||t.status}</span>
+              <span>{PRIORITY[t.priority]||t.priority}</span>
+              <span>{t.profiles?.full_name||'Chưa assign'}</span>
+              {t.due_at&&<span>{fmtDate(t.due_at)}</span>}
+            </span>
 
           </button>
 
@@ -4828,9 +4870,8 @@ function Kanban({
                       )
                   }
 
-                  onDoubleClick={()=>
-                    openTask(t)
-                  }
+                  onClick={()=>openTask(t)}
+                  onDoubleClick={()=>openTask(t)}
                 >
 
                   <small>
@@ -5501,9 +5542,11 @@ function TaskDrawer({
             Delivery link
           </h3>
 
+          <div className="deliveryLinkRow">
           <input
             className="fullInput"
-
+            type="url"
+            inputMode="url"
             placeholder="https://..."
 
             value={
@@ -5520,6 +5563,8 @@ function TaskDrawer({
               )
             }
           />
+          {/^(https?:\/\/)/i.test(task.delivery_url||'')&&<a className="secondary deliveryOpenBtn" href={task.delivery_url} target="_blank" rel="noreferrer">Mở ↗</a>}
+          </div>
 
         </section>
 
@@ -6042,12 +6087,25 @@ function HomeDashboard({
   const high=taskRows.filter(t=>['urgent','high'].includes(t.priority)&&!isDone(t))
   const atRisk=(projects||[]).filter(p=>p.health==='at_risk')
 
-  const birthdayRows=(members||[])
-    .map(m=>({
-      member:m,
-      name:m.profiles?.full_name||m.profiles?.email||'Thành viên',
-      avatar:m.profiles,
-      birth:m.profiles?.birth_date
+  const [birthdayProfiles,setBirthdayProfiles]=useState([])
+  useEffect(()=>{
+    let cancelled=false
+    async function loadBirthdays(){
+      const ids=(members||[]).map(m=>m.user_id).filter(Boolean)
+      if(!ids.length){setBirthdayProfiles([]);return}
+      const {data,error}=await supabase.from('profiles').select('id,full_name,email,avatar_url,birth_date').in('id',ids)
+      if(!cancelled&&!error)setBirthdayProfiles(data||[])
+    }
+    loadBirthdays()
+    return ()=>{cancelled=true}
+  },[JSON.stringify((members||[]).map(m=>m.user_id))])
+
+  const birthdayRows=(birthdayProfiles||[])
+    .map(p=>({
+      member:(members||[]).find(m=>m.user_id===p.id),
+      name:p.full_name||p.email||'Thành viên',
+      avatar:p,
+      birth:p.birth_date
     }))
     .filter(x=>x.birth)
     .map(x=>{
@@ -6115,7 +6173,7 @@ function HomeDashboard({
 
       <div className="panel" style={{padding:18,border:'1px solid #ffe0bf',boxShadow:'0 10px 30px rgba(245,124,0,.05)'}}>
         <h3 style={{margin:'0 0 10px',color:'#c75d00'}}>🎂 Sinh nhật sắp tới</h3>
-        {upcoming.length?upcoming.map(x=><div key={x.member.user_id} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 0',borderBottom:'1px solid #fff0e1'}}><Avatar p={x.avatar}/><div style={{minWidth:0,flex:1}}><b style={{display:'block',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{x.name}</b><small>{x.days===1?'Ngày mai':`${x.days} ngày nữa`} · {String(x.next.getDate()).padStart(2,'0')}/{String(x.next.getMonth()+1).padStart(2,'0')}</small></div></div>):<div className="empty">7 ngày tới chưa có sinh nhật thành viên.</div>}
+        {upcoming.length?upcoming.map(x=><div key={x.member.user_id} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 0',borderBottom:'1px solid #fff0e1'}}><Avatar p={x.avatar}/><div style={{minWidth:0,flex:1}}><b style={{display:'block',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{x.name}</b><small>{x.days===1?'Ngày mai':`${x.days} ngày nữa`} · {String(x.next.getDate()).padStart(2,'0')}/{String(x.next.getMonth()+1).padStart(2,'0')}</small></div></div>):<div className="empty">7 ngày tới chưa có sinh nhật thành viên. Nếu vừa cập nhật ngày sinh, hãy tải lại trang sau khi lưu hồ sơ.</div>}
       </div>
     </div>
 
@@ -6800,37 +6858,37 @@ function Reports({
   return <section className="page">
     <div className="pageHead"><div><h1>Reports</h1><p>Smart Reports & Workload Intelligence — theo dõi Project, Task, workload và rủi ro theo quyền truy cập hiện tại.</p></div></div>
 
-    <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:14}}>{tabBtn('overview','Overview')}{tabBtn('projects','Projects')}{tabBtn('people','People')}{tabBtn('workload','Workload')}{tabBtn('insights','Insights')}</div>
+    <div className="reportTabs" style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:14}}>{tabBtn('overview','Overview')}{tabBtn('projects','Projects')}{tabBtn('people','People')}{tabBtn('workload','Workload')}{tabBtn('insights','Insights')}</div>
 
-    <div style={{display:'grid',gridTemplateColumns:'150px 1fr 180px 180px 180px',gap:9,marginBottom:10}}>
+    <div className="reportFilters" style={{display:'grid',gridTemplateColumns:'150px 1fr 180px 180px 180px',gap:9,marginBottom:10}}>
       <select value={period} onChange={e=>setPeriod(e.target.value)}><option value="all">Tất cả thời gian</option><option value="d7">7 ngày</option><option value="d30">30 ngày</option><option value="d90">90 ngày</option></select>
       <input value={searchText} onChange={e=>setSearchText(e.target.value)} placeholder="Tìm task, project hoặc nhân sự..."/>
       <select value={teamFilter} onChange={e=>setTeamFilter(e.target.value)}><option value="all">Tất cả Team</option>{(teams||[]).map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select>
       <select value={projectFilter} onChange={e=>setProjectFilter(e.target.value)}><option value="all">Tất cả Project</option>{(projects||[]).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>
       <select value={memberFilter} onChange={e=>setMemberFilter(e.target.value)}><option value="all">Tất cả Member</option>{(members||[]).map(m=><option key={m.user_id} value={m.user_id}>{m.profiles?.full_name||m.profiles?.email}</option>)}</select>
     </div>
-    <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:16}}>
+    <div className="reportQuick" style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:16}}>
       {[['all','Tất cả'],['overdue','Overdue'],['review','Chờ Review'],['priority','High/Urgent'],['unassigned','Chưa assign']].map(([k,l])=><button type="button" key={k} onClick={()=>setQuick(k)} style={{border:'1px solid #e5e7eb',background:quick===k?'#fff3e8':'#fff',borderRadius:999,padding:'7px 11px',fontWeight:700,cursor:'pointer'}}>{l}</button>)}
-      <select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} style={{width:160}}><option value="all">Mọi status</option>{STATUS.map(s=><option key={s} value={s}>{LABEL[s]||s}</option>)}</select>
+      <select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} style={{width:160}}><option value="all">Mọi status</option>{STATUS.map(s=><option key={s} value={s}>{LABEL[s]||s}</option>)}</select><button type="button" className="secondary" onClick={()=>{setPeriod('all');setProjectFilter('all');setTeamFilter('all');setMemberFilter('all');setStatusFilter('all');setQuick('all');setSearchText('')}}>Xóa bộ lọc</button>
     </div>
 
     {loading?<div className="panel"><div className="empty">Đang tải dữ liệu báo cáo...</div></div>:<>
       {tab==='overview'&&<>
-        <div className="statGrid" style={{gridTemplateColumns:'repeat(7,minmax(120px,1fr))'}}>
+        <div className="statGrid reportStatGrid" style={{gridTemplateColumns:'repeat(7,minmax(120px,1fr))'}}>
           <Stat label="Projects" value={overall.projects}/><Stat label="Tasks" value={overall.tasks}/><Stat label="Active" value={overall.active}/><Stat label="Overdue" value={overall.overdue}/><Stat label="Review" value={overall.review}/><Stat label="Done" value={overall.done}/><Stat label="On-time" value={overall.ontime===null?'—':overall.ontime+'%'}/>
         </div>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14,marginTop:14}}>
+        <div className="reportTwoCol" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14,marginTop:14}}>
           <div className="panel" style={{padding:16}}><h3 style={{marginTop:0}}>Project cần chú ý</h3>{atRisk.length?atRisk.slice(0,6).map(x=><button key={x.p.id} onClick={()=>openProjectMetric(x)} className="memberRow" style={{width:'100%'}}><span><b>{x.p.name}</b><small>{x.overdue} overdue · {x.progress}% hoàn thành</small></span><span style={healthStyle(x.health)}>{x.health}</span></button>):<div className="empty">Chưa có Project At risk.</div>}</div>
           <div className="panel" style={{padding:16}}><h3 style={{marginTop:0}}>Workload cần cân bằng</h3>{[...overloaded,...underloaded].slice(0,6).map(x=><button key={x.m.user_id} onClick={()=>openPerson(x)} className="memberRow" style={{width:'100%'}}><span><b>{x.m.profiles?.full_name||x.m.profiles?.email}</b><small>{x.projects} Project · {x.active} task active · {x.overdue} overdue</small></span><span style={workloadStyle(x.workload)}>{x.workload}</span></button>)}</div>
         </div>
         <div className="panel" style={{marginTop:14}}><h3 style={{padding:'14px 16px 0'}}>Task cần can thiệp</h3>{topOverdue.length?topOverdue.map(t=><button key={t.id} className="memberRow" style={{width:'100%'}} onClick={()=>onOpenTask?.(t)}><span className={'statusBadge '+t.status}>{LABEL[t.status]||t.status}</span><span style={{minWidth:0}}><b>{t.title}</b><small>{t.project?.name||projectMap.get(t.project_id)?.name} · {t.profiles?.full_name||'Chưa assign'}</small></span><span style={{textAlign:'right',color:'#b91c1c',fontWeight:800}}>Trễ {Math.max(1,Math.ceil((now-new Date(t.due_at).getTime())/dayMs))} ngày</span></button>):<div className="empty">Không có task overdue trong bộ lọc hiện tại.</div>}</div>
       </>}
 
-      {tab==='projects'&&<div className="panel" style={{overflowX:'auto'}}><table style={{width:'100%',borderCollapse:'collapse',minWidth:900}}><thead><tr>{['Project','Tổng task','Active','Done','Review','Overdue','Progress','On-time','Health'].map(h=><th key={h} style={{textAlign:'left',padding:12,borderBottom:'1px solid #eceff3'}}>{h}</th>)}</tr></thead><tbody>{projectMetrics.map(x=><tr key={x.p.id} onClick={()=>openProjectMetric(x)} style={{cursor:'pointer'}}><td style={{padding:12,borderBottom:'1px solid #f0f2f4'}}><b>{x.p.name}</b><small style={{display:'block'}}>{x.p.code}</small></td><td>{x.total}</td><td>{x.active}</td><td>{x.done}</td><td>{x.review}</td><td style={{color:x.overdue?'#b91c1c':undefined,fontWeight:x.overdue?800:400}}>{x.overdue}</td><td>{x.progress}%</td><td>{x.ontime===null?'—':x.ontime+'%'}</td><td style={healthStyle(x.health)}>{x.health}</td></tr>)}</tbody></table></div>}
+      {tab==='projects'&&<div className="panel reportTableWrap" style={{overflowX:'auto'}}><table style={{width:'100%',borderCollapse:'collapse',minWidth:900}}><thead><tr>{['Project','Tổng task','Active','Done','Review','Overdue','Progress','On-time','Health'].map(h=><th key={h} style={{textAlign:'left',padding:12,borderBottom:'1px solid #eceff3'}}>{h}</th>)}</tr></thead><tbody>{projectMetrics.map(x=><tr key={x.p.id} onClick={()=>openProjectMetric(x)} style={{cursor:'pointer'}}><td style={{padding:12,borderBottom:'1px solid #f0f2f4'}}><b>{x.p.name}</b><small style={{display:'block'}}>{x.p.code}</small></td><td>{x.total}</td><td>{x.active}</td><td>{x.done}</td><td>{x.review}</td><td style={{color:x.overdue?'#b91c1c':undefined,fontWeight:x.overdue?800:400}}>{x.overdue}</td><td>{x.progress}%</td><td>{x.ontime===null?'—':x.ontime+'%'}</td><td style={healthStyle(x.health)}>{x.health}</td></tr>)}</tbody></table></div>}
 
-      {tab==='people'&&<div className="panel" style={{overflowX:'auto'}}><table style={{width:'100%',borderCollapse:'collapse',minWidth:950}}><thead><tr>{['Nhân sự','Project đang làm','Task active','Tổng task','Done','Overdue','Review','On-time','Workload'].map(h=><th key={h} style={{textAlign:'left',padding:12,borderBottom:'1px solid #eceff3'}}>{h}</th>)}</tr></thead><tbody>{peopleMetrics.map(x=><tr key={x.m.user_id} onClick={()=>openPerson(x)} style={{cursor:'pointer'}}><td style={{padding:12,borderBottom:'1px solid #f0f2f4'}}><b>{x.m.profiles?.full_name||x.m.profiles?.email}</b><small style={{display:'block'}}>{x.m.teams?.name||''}</small></td><td>{x.projects}</td><td>{x.active}</td><td>{x.total}</td><td>{x.done}</td><td style={{color:x.overdue?'#b91c1c':undefined,fontWeight:x.overdue?800:400}}>{x.overdue}</td><td>{x.review}</td><td>{x.ontime===null?'—':x.ontime+'%'}</td><td style={workloadStyle(x.workload)}>{x.workload} · {x.score}</td></tr>)}</tbody></table></div>}
+      {tab==='people'&&<div className="panel reportTableWrap" style={{overflowX:'auto'}}><table style={{width:'100%',borderCollapse:'collapse',minWidth:950}}><thead><tr>{['Nhân sự','Project đang làm','Task active','Tổng task','Done','Overdue','Review','On-time','Workload'].map(h=><th key={h} style={{textAlign:'left',padding:12,borderBottom:'1px solid #eceff3'}}>{h}</th>)}</tr></thead><tbody>{peopleMetrics.map(x=><tr key={x.m.user_id} onClick={()=>openPerson(x)} style={{cursor:'pointer'}}><td style={{padding:12,borderBottom:'1px solid #f0f2f4'}}><b>{x.m.profiles?.full_name||x.m.profiles?.email}</b><small style={{display:'block'}}>{x.m.teams?.name||''}</small></td><td>{x.projects}</td><td>{x.active}</td><td>{x.total}</td><td>{x.done}</td><td style={{color:x.overdue?'#b91c1c':undefined,fontWeight:x.overdue?800:400}}>{x.overdue}</td><td>{x.review}</td><td>{x.ontime===null?'—':x.ontime+'%'}</td><td style={workloadStyle(x.workload)}>{x.workload} · {x.score}</td></tr>)}</tbody></table></div>}
 
-      {tab==='workload'&&<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',gap:12}}>{peopleMetrics.map(x=><article className="projectCard" key={x.m.user_id} onClick={()=>openPerson(x)} style={{cursor:'pointer'}}><div style={{display:'flex',justifyContent:'space-between',gap:12}}><div><h3 style={{margin:'0 0 4px'}}>{x.m.profiles?.full_name||x.m.profiles?.email}</h3><small>{x.m.teams?.name||'Chưa gán Team'}</small></div><b style={workloadStyle(x.workload)}>{x.workload}</b></div><div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginTop:14}}><div><small>Project</small><b style={{display:'block',fontSize:20}}>{x.projects}</b></div><div><small>Active</small><b style={{display:'block',fontSize:20}}>{x.active}</b></div><div><small>Overdue</small><b style={{display:'block',fontSize:20,color:x.overdue?'#b91c1c':undefined}}>{x.overdue}</b></div></div><small style={{display:'block',marginTop:12}}>Workload score {x.score} · On-time {x.ontime===null?'chưa đủ dữ liệu':x.ontime+'%'}</small></article>)}</div>}
+      {tab==='workload'&&<div className="reportWorkloadGrid" style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',gap:12}}>{peopleMetrics.map(x=><article className="projectCard" key={x.m.user_id} onClick={()=>openPerson(x)} style={{cursor:'pointer'}}><div style={{display:'flex',justifyContent:'space-between',gap:12}}><div><h3 style={{margin:'0 0 4px'}}>{x.m.profiles?.full_name||x.m.profiles?.email}</h3><small>{x.m.teams?.name||'Chưa gán Team'}</small></div><b style={workloadStyle(x.workload)}>{x.workload}</b></div><div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginTop:14}}><div><small>Project</small><b style={{display:'block',fontSize:20}}>{x.projects}</b></div><div><small>Active</small><b style={{display:'block',fontSize:20}}>{x.active}</b></div><div><small>Overdue</small><b style={{display:'block',fontSize:20,color:x.overdue?'#b91c1c':undefined}}>{x.overdue}</b></div></div><small style={{display:'block',marginTop:12}}>Workload score {x.score} · On-time {x.ontime===null?'chưa đủ dữ liệu':x.ontime+'%'}</small></article>)}</div>}
 
       {tab==='insights'&&<div className="panel" style={{padding:18}}><h3 style={{marginTop:0}}>Manager Insights</h3><div style={{display:'grid',gap:10}}>
         <div style={{padding:13,border:'1px solid #eceff3',borderRadius:10}}><b>Project rủi ro:</b> {atRisk.length?`${atRisk.length} Project đang ở mức At risk. Ưu tiên kiểm tra ${atRisk.slice(0,3).map(x=>x.p.name).join(', ')}.`:'Chưa có Project nào bị đánh dấu At risk trong bộ lọc hiện tại.'}</div>
@@ -7133,6 +7191,7 @@ function MemberDrawer({
         )}
 
 
+        <div className="mobileStickyAction">
         <button
           className="primary full"
 
@@ -7152,6 +7211,7 @@ function MemberDrawer({
           }
 
         </button>
+        </div>
 
       </div>
 
@@ -7165,11 +7225,26 @@ function MemberDrawer({
 // MOBILE / FULL TASK CREATE DRAWER
 // =====================================================
 function TaskCreateDrawer({project,members,onClose,onCreate}){
-  const [form,setForm]=useState({
-    title:'',description:'',assignee_id:'',due_at:'',priority:'medium',delivery_url:''
+  const draftKey=`fptu-work-task-draft-${project?.id||'unknown'}`
+  const emptyForm={title:'',description:'',assignee_id:'',due_at:'',priority:'medium',delivery_url:''}
+  const [form,setForm]=useState(()=>{
+    try{
+      const raw=typeof window!=='undefined'?window.localStorage.getItem(draftKey):null
+      return raw?{...emptyForm,...JSON.parse(raw)}:emptyForm
+    }catch{return emptyForm}
   })
   const [saving,setSaving]=useState(false)
   const [error,setError]=useState('')
+
+  useEffect(()=>{
+    try{window.localStorage.setItem(draftKey,JSON.stringify(form))}catch{}
+  },[draftKey,form])
+
+  function validHttpUrl(v){
+    const x=(v||'').trim()
+    if(!x)return true
+    try{const u=new URL(x);return u.protocol==='http:'||u.protocol==='https:'}catch{return false}
+  }
 
   async function submit(e){
     e?.preventDefault?.()
@@ -7177,11 +7252,17 @@ function TaskCreateDrawer({project,members,onClose,onCreate}){
       setError('Vui lòng nhập tên Task.')
       return
     }
+    if(!validHttpUrl(form.delivery_url)){
+      setError('Delivery URL không hợp lệ. Link phải bắt đầu bằng http:// hoặc https://')
+      return
+    }
     setSaving(true); setError('')
     const result=await onCreate?.(form)
     setSaving(false)
     if(!result?.ok){
       setError(result?.error||'Không tạo được Task.')
+    }else{
+      try{window.localStorage.removeItem(draftKey)}catch{}
     }
   }
 
@@ -7206,7 +7287,11 @@ function TaskCreateDrawer({project,members,onClose,onCreate}){
           <Field label="Priority"><select value={form.priority} onChange={e=>setForm({...form,priority:e.target.value})}>{Object.keys(PRIORITY).map(x=><option key={x} value={x}>{PRIORITY[x]}</option>)}</select></Field>
         </div>
         <Field label="Delivery URL">
-          <input className="fullInput" type="url" inputMode="url" value={form.delivery_url} onChange={e=>setForm({...form,delivery_url:e.target.value})} placeholder="https://drive.google.com/..." />
+          <div className="deliveryLinkRow">
+            <input className="fullInput" type="url" inputMode="url" value={form.delivery_url} onChange={e=>setForm({...form,delivery_url:e.target.value})} placeholder="https://drive.google.com/..." />
+            {validHttpUrl(form.delivery_url)&&form.delivery_url.trim()&&<a className="secondary deliveryOpenBtn" href={form.delivery_url.trim()} target="_blank" rel="noreferrer">Mở ↗</a>}
+          </div>
+          {form.delivery_url.trim()&&!validHttpUrl(form.delivery_url)&&<small style={{color:'#b91c1c'}}>URL chưa hợp lệ.</small>}
         </Field>
         {error&&<div className="errorBox">{error}</div>}
         <div className="taskCreateSticky">
@@ -7646,6 +7731,7 @@ function ProjectMemberDrawer({
         }
 
 
+        <div className="mobileStickyAction">
         <button
           className="primary full"
 
@@ -7684,6 +7770,7 @@ function ProjectMemberDrawer({
             Gỡ khỏi Project
           </button>
         }
+        </div>
 
       </div>
 
