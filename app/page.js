@@ -6829,7 +6829,7 @@ function MyTasks({
     done:rows.filter(isDone).length
   }
 
-  const projects=[...new Map(
+  const taskProjects=[...new Map(
     rows
       .filter(t=>t.project?.id)
       .map(t=>[t.project.id,t.project])
@@ -6951,7 +6951,7 @@ function MyTasks({
         style={{border:'1px solid #e5e7eb',borderRadius:10,padding:'10px 12px',background:'#fff'}}
       >
         <option value="all">Tất cả Project</option>
-        {projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+        {taskProjects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
       </select>
 
       <select
