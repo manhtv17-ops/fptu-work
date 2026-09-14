@@ -1,6 +1,6 @@
 'use client'
 
-// FPTU Work v18.8 - Mobile UX Optimization
+// FPTU Work v18.13 - Workflow Upgrade: subtasks, multi-assignee, member removal, list view, bilingual UI, My Projects
 
 import {
   useEffect,
@@ -111,6 +111,103 @@ function initials(name=''){
 }
 
 
+
+// =====================================================
+// UI LANGUAGE (Vietnamese / English)
+// =====================================================
+
+const UI_TEXT = [
+  ['Home','Trang chủ'],['My Tasks','Công việc của tôi'],['My Projects','Dự án tôi quản lý'],['Projects','Dự án'],['Teams','Nhóm'],['Members','Thành viên'],['Reports','Báo cáo'],
+  ['Project Workspace','Không gian công việc'],['Members & Permissions','Thành viên & Phân quyền'],['Member permissions','Phân quyền thành viên'],
+  ['Custom permissions','Quyền tùy chỉnh'],['Role','Vai trò'],['Team','Nhóm'],['Project','Dự án'],['Task','Công việc'],['Sub-task','Công việc con'],
+  ['To-do','Cần làm'],['In Progress','Đang làm'],['Review','Chờ duyệt'],['Done','Hoàn thành'],['Planning','Lập kế hoạch'],['Active','Đang hoạt động'],
+  ['On Hold','Tạm dừng'],['Completed','Hoàn tất'],['Cancelled','Đã hủy'],['Archived','Đã lưu trữ'],
+  ['Low','Thấp'],['Medium','Trung bình'],['High','Cao'],['Urgent','Khẩn cấp'],
+  ['Add member to Project','Thêm thành viên vào Dự án'],['Edit Project member','Sửa thành viên trong Dự án'],['Add to Project','Thêm vào Dự án'],
+  ['Member','Thành viên'],['Viewer','Chỉ xem'],['Lead','Trưởng dự án'],['Team Lead','Trưởng nhóm'],['Manager','Trưởng phòng'],
+  ['Create Team','Tạo Team'],['Create Task','Tạo Task mới'],['Create & open Task','Tạo & mở Task'],['Invite member','Mời thành viên'],
+  ['Save permissions','Lưu quyền'],['Save changes','Lưu thay đổi'],['Remove from Project','Gỡ khỏi Project'],['Remove from Workspace','Xóa khỏi Workspace'],
+  ['All','Tất cả'],['To do','Cần làm'],['Newly assigned','Mới được giao'],['Overdue','Trễ hạn'],['Priority','Ưu tiên'],['In progress','Đang làm'],
+  ['Waiting review','Chờ Review'],['Completed','Hoàn thành'],['All Projects','Tất cả Project'],['All priorities','Mọi mức ưu tiên'],
+  ['List','Danh sách'],['Cards','Khối'],['Search members...','Tìm thành viên...'],['Search by name or email...','Tìm theo tên hoặc email...'],
+  ['Description','Mô tả'],['Deadline','Hạn chót'],['Assignees','Người phụ trách'],['Delivery link','Liên kết bàn giao'],['Comments','Bình luận'],
+  ['Enable notifications','Bật thông báo'],['Notifications','Thông báo'],['Edit profile','Chỉnh sửa hồ sơ'],['Manager','Trưởng phòng'],['Member/CTV','Member/CTV'],
+  ['Can create tasks','Được tạo task'],['Can assign tasks','Được assign task'],['Can manage Project members','Được quản lý member Project'],
+  ['Draft is auto-saved on this device. You can leave and come back without losing content.','Nháp được tự động lưu trên thiết bị này. Có thể đóng/mở lại form mà không mất nội dung.'],
+  ['No tasks match the current filters.','Không có task phù hợp với bộ lọc hiện tại.'],['No data.','Không có dữ liệu.'],
+  ['Healthy','Ổn định'],['Watch','Cần theo dõi'],['At risk','Có rủi ro'],['Balanced','Cân bằng'],['Overloaded','Quá tải'],['Workload','Tải công việc'],['On-time','Đúng hạn'],['Review backlog','Tồn đọng duyệt']
+]
+
+const UI_ALIASES = {
+  'Add member vào Project':{vi:'Thêm thành viên vào Dự án',en:'Add member to Project'},
+  'Sửa member trong Project':{vi:'Sửa thành viên trong Dự án',en:'Edit Project member'},
+  'Team, Team Lead và Project trong Workspace.':{vi:'Nhóm, Trưởng nhóm và Dự án trong không gian làm việc.',en:'Teams, Team Leads and Projects in the workspace.'},
+  'Trưởng phòng quản lý role, team và quyền Workspace.':{vi:'Trưởng phòng quản lý vai trò, nhóm và quyền trong không gian làm việc.',en:'Managers control roles, teams and workspace permissions.'},
+  'Smart Reports & Workload Intelligence — theo dõi Project, Task, workload và rủi ro theo quyền truy cập hiện tại.':{vi:'Báo cáo thông minh — theo dõi dự án, công việc, tải công việc và rủi ro theo quyền truy cập hiện tại.',en:'Smart reports — track projects, tasks, workload and risk based on current access.'},
+  'Mô tả Project':{vi:'Mô tả Dự án',en:'Project description'},
+  'Links làm việc':{vi:'Liên kết làm việc',en:'Working links'},
+  'Project overview':{vi:'Tổng quan Dự án',en:'Project overview'},
+  'Total tasks':{vi:'Tổng công việc',en:'Total tasks'},
+  'Overdue':{vi:'Trễ hạn',en:'Overdue'},
+  'Progress':{vi:'Tiến độ',en:'Progress'},
+  'Project Lead':{vi:'Trưởng dự án',en:'Project Lead'},
+  'Workspace':{vi:'Không gian làm việc',en:'Workspace'},
+  'Search task...':{vi:'Tìm công việc...',en:'Search tasks...'},
+  'Tìm người assign...':{vi:'Tìm người phụ trách...',en:'Search assignees...'},
+  'Chưa assign':{vi:'Chưa giao',en:'Unassigned'},
+  'Chưa gán':{vi:'Chưa gán',en:'Unassigned'},
+  'Add Member':{vi:'Thêm thành viên',en:'Add member'},
+  'Role trong Project':{vi:'Vai trò trong Dự án',en:'Project role'},
+  'Member permissions':{vi:'Phân quyền thành viên',en:'Member permissions'},
+  'Custom permissions':{vi:'Quyền tùy chỉnh',en:'Custom permissions'},
+  'Delivery URL':{vi:'Liên kết bàn giao',en:'Delivery URL'},
+  'Người phụ trách':{vi:'Người phụ trách',en:'Assignees'},
+  'Tạo Sub-task mới':{vi:'Tạo công việc con mới',en:'Create sub-task'},
+  'Chưa có Sub-task.':{vi:'Chưa có công việc con.',en:'No sub-tasks yet.'},
+  'Công việc con có status, deadline, priority, delivery link và nhiều người phụ trách như Task.':{vi:'Công việc con có trạng thái, hạn chót, mức ưu tiên, liên kết bàn giao và nhiều người phụ trách như công việc chính.',en:'Sub-tasks support status, deadline, priority, delivery link and multiple assignees like tasks.'}
+}
+
+function getUILang(){
+  try{return typeof window!=='undefined'?(window.localStorage.getItem('fptu-work-ui-lang')||'vi'):'vi'}catch{return 'vi'}
+}
+function workspaceRoleLabel(role){
+  const lang=getUILang()
+  const map={manager:{vi:'Trưởng phòng',en:'Manager'},team_lead:{vi:'Trưởng nhóm',en:'Team Lead'},member:{vi:'Thành viên/CTV',en:'Member/CTV'}}
+  return map[role]?.[lang]||role||''
+}
+
+const VI_TO_EN = Object.fromEntries(UI_TEXT.map(([en,vi])=>[vi,en]))
+const EN_TO_VI = Object.fromEntries(UI_TEXT.map(([en,vi])=>[en,vi]))
+
+function translateExactText(value,lang){
+  const raw=String(value??'')
+  const lead=raw.match(/^\s*/)?.[0]||''
+  const tail=raw.match(/\s*$/)?.[0]||''
+  const core=raw.trim()
+  if(!core) return raw
+  if(UI_ALIASES[core]) return lead+UI_ALIASES[core][lang]+tail
+  const map=lang==='en'?VI_TO_EN:EN_TO_VI
+  return Object.prototype.hasOwnProperty.call(map,core)?lead+map[core]+tail:raw
+}
+
+function applyUILanguage(lang){
+  if(typeof document==='undefined') return
+  document.documentElement.lang=lang==='en'?'en':'vi'
+  const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT)
+  const nodes=[]
+  while(walker.nextNode()) nodes.push(walker.currentNode)
+  nodes.forEach(n=>{
+    const parent=n.parentElement
+    if(!parent || ['SCRIPT','STYLE'].includes(parent.tagName)) return
+    const next=translateExactText(n.nodeValue,lang)
+    if(next!==n.nodeValue) n.nodeValue=next
+  })
+  document.querySelectorAll('input[placeholder],textarea[placeholder],button[title]').forEach(el=>{
+    if(el.placeholder){const next=translateExactText(el.placeholder,lang);if(next!==el.placeholder)el.placeholder=next}
+    if(el.title){const next=translateExactText(el.title,lang);if(next!==el.title)el.title=next}
+  })
+}
+
 // =====================================================
 // MAIN
 // =====================================================
@@ -160,7 +257,20 @@ export default function Home(){
   const [taskFilter,setTaskFilter]=useState('all')
 
   const [pushStatus,setPushStatus]=useState('checking')
+  const [uiLang,setUiLang]=useState(()=>{
+    if(typeof window==='undefined') return 'vi'
+    return window.localStorage.getItem('fptu-work-ui-lang')||'vi'
+  })
   const deepLinkHandledRef=useRef(false)
+
+  useEffect(()=>{
+    if(typeof window==='undefined') return
+    window.localStorage.setItem('fptu-work-ui-lang',uiLang)
+    applyUILanguage(uiLang)
+    const obs=new MutationObserver(()=>applyUILanguage(uiLang))
+    obs.observe(document.body,{childList:true,subtree:true})
+    return ()=>obs.disconnect()
+  },[uiLang])
 
 
   // ===================================================
@@ -1305,7 +1415,7 @@ export default function Home(){
       supabase
         .from('tasks')
         .select(
-          '*, profiles!tasks_assignee_id_fkey(full_name,avatar_url,email), project:projects(name,code)'
+          '*, profiles!tasks_assignee_id_fkey(full_name,avatar_url,email), task_assignees(user_id, profiles(*)), project:projects(name,code)'
         )
         .eq(
           'project_id',
@@ -1315,15 +1425,10 @@ export default function Home(){
           'archived_at',
           null
         )
-
-
-    if(!canSeeAll){
-
-      query=query.eq(
-        'assignee_id',
-        session.user.id
-      )
-    }
+        .is(
+          'parent_task_id',
+          null
+        )
 
 
     const {
@@ -1348,7 +1453,11 @@ export default function Home(){
 
 
     const taskList=
-      t||[]
+      (t||[]).filter(x=>
+        canSeeAll
+        || x.assignee_id===session.user.id
+        || (x.task_assignees||[]).some(a=>a.user_id===session.user.id)
+      )
 
 
     setProjectMembers(
@@ -1525,7 +1634,7 @@ export default function Home(){
         } = await supabase
           .from('tasks')
           .select(
-            '*, profiles!tasks_assignee_id_fkey(full_name,avatar_url,email), project:projects(name,code)'
+            '*, profiles!tasks_assignee_id_fkey(full_name,avatar_url,email), task_assignees(user_id, profiles(*)), project:projects(name,code)'
           )
           .eq(
             'id',
@@ -1926,7 +2035,7 @@ export default function Home(){
     } = await supabase
       .from('tasks')
       .select(
-        '*, profiles!tasks_assignee_id_fkey(full_name,avatar_url,email)'
+        '*, profiles!tasks_assignee_id_fkey(full_name,avatar_url,email), task_assignees(user_id, profiles(*))'
       )
       .eq(
         'id',
@@ -1963,41 +2072,54 @@ export default function Home(){
       return {ok:false,error:'Vui lòng nhập tên Task.'}
     }
 
-    const assigneeId=form?.assignee_id||session.user.id
+    const selectedIds=[...new Set((form?.assignee_ids||[]).filter(Boolean))]
+    if(!selectedIds.length && form?.assignee_id) selectedIds.push(form.assignee_id)
+    if(!selectedIds.length) selectedIds.push(session.user.id)
 
-    if(assigneeId && !projectMembers.some(m=>m.user_id===assigneeId)){
-      const targetMember=members.find(m=>m.user_id===assigneeId)
-      if(!targetMember){
-        return {ok:false,error:'Không tìm thấy người được giao trong Workspace.'}
+    for(const assigneeId of selectedIds){
+      if(!projectMembers.some(m=>m.user_id===assigneeId)){
+        const targetMember=members.find(m=>m.user_id===assigneeId)
+        if(!targetMember){
+          return {ok:false,error:'Không tìm thấy người được giao trong Workspace.'}
+        }
+        if(!canAutoAddTaskAssignee){
+          return {ok:false,error:'Có người chưa thuộc Project. Hãy Add member vào Project trước khi giao Task.'}
+        }
+        const {error:addError}=await supabase.rpc('add_project_member_safe',{
+          p_project_id:project.id,
+          p_user_id:assigneeId,
+          p_role_in_project:'member',
+          p_can_create_task:true,
+          p_can_assign_task:true,
+          p_can_manage_project_members:false
+        })
+        if(addError){
+          return {ok:false,error:'Không thể thêm người này vào Project: '+addError.message}
+        }
+        setProjectMembers(prev=>prev.some(x=>x.user_id===assigneeId)?prev:[...prev,{
+          project_id:project.id,user_id:assigneeId,role_in_project:'member',
+          can_create_task:true,can_assign_task:true,can_manage_project_members:false,
+          profiles:targetMember.profiles
+        }])
       }
-      if(!canAutoAddTaskAssignee){
-        return {ok:false,error:'Người này chưa thuộc Project. Hãy Add member vào Project trước khi giao Task.'}
-      }
-      const {error:addError}=await supabase.rpc('add_project_member_safe',{
-        p_project_id:project.id,
-        p_user_id:assigneeId,
-        p_role_in_project:'member',
-        p_can_create_task:true,
-        p_can_assign_task:true,
-        p_can_manage_project_members:false
-      })
-      if(addError){
-        return {ok:false,error:'Không thể thêm người này vào Project: '+addError.message}
-      }
-      setProjectMembers(prev=>[...prev,{
-        project_id:project.id,user_id:assigneeId,role_in_project:'member',
-        can_create_task:true,can_assign_task:true,can_manage_project_members:false,
-        profiles:targetMember.profiles
-      }])
     }
 
+    const primaryAssignee=selectedIds[0]||null
     const {data:taskId,error:createError}=await supabase.rpc('create_project_task_safe',{
       p_project_id:project.id,
       p_title:title,
-      p_assignee_id:assigneeId||null
+      p_assignee_id:primaryAssignee
     })
     if(createError){
       return {ok:false,error:'Không tạo được Task: '+createError.message}
+    }
+
+    const {error:assigneeError}=await supabase.rpc('set_task_assignees_safe',{
+      p_task_id:taskId,
+      p_user_ids:selectedIds
+    })
+    if(assigneeError){
+      return {ok:false,error:'Task đã tạo nhưng chưa lưu được danh sách người phụ trách: '+assigneeError.message}
     }
 
     const deliveryUrl=(form?.delivery_url||'').trim()
@@ -2020,7 +2142,7 @@ export default function Home(){
 
     const {data,error:loadError}=await supabase
       .from('tasks')
-      .select('*, profiles!tasks_assignee_id_fkey(full_name,avatar_url,email)')
+      .select('*, profiles!tasks_assignee_id_fkey(full_name,avatar_url,email), task_assignees(user_id, profiles(*))')
       .eq('id',taskId)
       .single()
     if(loadError){
@@ -2036,6 +2158,92 @@ export default function Home(){
     return {ok:true,task:data}
   }
 
+
+  async function updateTaskAssignees(taskId,userIds){
+    const ids=[...new Set((userIds||[]).filter(Boolean))]
+    for(const uid of ids){
+      if(project && !projectMembers.some(m=>m.user_id===uid)){
+        const targetMember=members.find(m=>m.user_id===uid)
+        if(!targetMember){ alert('Không tìm thấy người này trong Workspace.'); return }
+        if(!canAutoAddTaskAssignee){ alert('Người này chưa thuộc Project. Hãy Add member vào Project trước.'); return }
+        const {error:addError}=await supabase.rpc('add_project_member_safe',{
+          p_project_id:project.id,p_user_id:uid,p_role_in_project:'member',
+          p_can_create_task:true,p_can_assign_task:true,p_can_manage_project_members:false
+        })
+        if(addError){alert('Không thể thêm người này vào Project: '+addError.message);return}
+      }
+    }
+    const {error}=await supabase.rpc('set_task_assignees_safe',{p_task_id:taskId,p_user_ids:ids})
+    if(error){alert('Không lưu được người phụ trách: '+error.message);return}
+    const {data}=await supabase.from('tasks')
+      .select('*, profiles!tasks_assignee_id_fkey(full_name,avatar_url,email), task_assignees(user_id, profiles(*))')
+      .eq('id',taskId).single()
+    if(data){
+      setTasks(prev=>prev.map(x=>x.id===taskId?{...x,...data}:x))
+      if(taskDrawer?.id===taskId) setTaskDrawer(prev=>({...prev,...data}))
+    }
+    showToast('Đã cập nhật người phụ trách')
+  }
+
+
+
+  async function loadTaskIntoDrawer(taskId){
+    if(!taskId) return
+    const {data,error}=await supabase
+      .from('tasks')
+      .select('*, profiles!tasks_assignee_id_fkey(full_name,avatar_url,email), task_assignees(user_id, profiles(*)), project:projects(name,code)')
+      .eq('id',taskId)
+      .single()
+    if(error){alert('Không mở được Task: '+error.message);return}
+    if(data) setTaskDrawer(data)
+  }
+
+  async function createSubtaskDetailed(parentTask,form){
+    const title=(form?.title||'').trim()
+    if(!parentTask?.id||!title) return {ok:false,error:'Vui lòng nhập tên Sub-task.'}
+    const selectedIds=[...new Set((form?.assignee_ids||[]).filter(Boolean))]
+
+    for(const uid of selectedIds){
+      if(project && !projectMembers.some(m=>m.user_id===uid)){
+        const targetMember=members.find(m=>m.user_id===uid)
+        if(!targetMember) return {ok:false,error:'Không tìm thấy người phụ trách trong Workspace.'}
+        if(!canAutoAddTaskAssignee) return {ok:false,error:'Có người chưa thuộc Project. Hãy Add member vào Project trước.'}
+        const {error:addError}=await supabase.rpc('add_project_member_safe',{
+          p_project_id:project.id,p_user_id:uid,p_role_in_project:'member',
+          p_can_create_task:true,p_can_assign_task:true,p_can_manage_project_members:false
+        })
+        if(addError) return {ok:false,error:'Không thêm được người phụ trách vào Project: '+addError.message}
+      }
+    }
+
+    const {data:taskId,error:createError}=await supabase.rpc('create_subtask_safe',{
+      p_parent_task_id:parentTask.id,
+      p_title:title,
+      p_assignee_ids:selectedIds
+    })
+    if(createError) return {ok:false,error:'Không tạo được Sub-task: '+createError.message}
+
+    const deliveryUrl=(form?.delivery_url||'').trim()
+    if(deliveryUrl){
+      try{const u=new URL(deliveryUrl);if(!['http:','https:'].includes(u.protocol))throw new Error('invalid')}
+      catch{return {ok:false,error:'Delivery URL không hợp lệ. Link phải bắt đầu bằng http:// hoặc https://'}}
+    }
+    const patch={
+      description:(form?.description||'').trim()||null,
+      priority:form?.priority||'medium',
+      due_at:form?.due_at?new Date(form.due_at+'T17:00:00').toISOString():null,
+      delivery_url:deliveryUrl||null
+    }
+    const {error:updateError}=await supabase.from('tasks').update(patch).eq('id',taskId)
+    if(updateError) return {ok:false,error:'Sub-task đã tạo nhưng chưa lưu đủ thông tin: '+updateError.message}
+
+    const {data}=await supabase
+      .from('tasks')
+      .select('*, profiles!tasks_assignee_id_fkey(full_name,avatar_url,email), task_assignees(user_id, profiles(*))')
+      .eq('id',taskId).single()
+    showToast('Đã tạo Sub-task')
+    return {ok:true,task:data}
+  }
 
   // ===================================================
   // UPDATE TASK
@@ -2478,8 +2686,8 @@ export default function Home(){
           rows=
             rows.filter(
               t=>
-                t.assignee_id===
-                  session?.user?.id
+                t.assignee_id===session?.user?.id
+                || (t.task_assignees||[]).some(a=>a.user_id===session?.user?.id)
             )
         }
 
@@ -2527,7 +2735,7 @@ export default function Home(){
           rows=
             rows.filter(
               t=>
-                `${t.code} ${t.title} ${t.profiles?.full_name||''}`
+                `${t.code} ${t.title} ${t.profiles?.full_name||''} ${(t.task_assignees||[]).map(a=>a.profiles?.full_name||a.profiles?.email||'').join(' ')}`
                   .toLowerCase()
                   .includes(q)
             )
@@ -2741,7 +2949,33 @@ export default function Home(){
       .taskArchiveHint{font-size:12px;line-height:1.4;color:#64748b;padding:8px 10px 4px}
       .kanbanMobileStatus{display:none}
 
+      .segmentedControl{display:inline-flex;border:1px solid #dfe3e8;border-radius:10px;overflow:hidden;background:#fff}
+      .segmentedControl button{border:0;background:#fff;padding:9px 12px;font-weight:700;color:#64748b;cursor:pointer}
+      .segmentedControl button.active{background:#eff6ff;color:#1d4ed8}
+      .teamListPanel{overflow:hidden}
+      .teamListHeader,.teamListRow{display:grid;grid-template-columns:minmax(240px,1.7fr) minmax(180px,1fr) 110px 90px;gap:14px;align-items:center;padding:12px 16px}
+      .teamListHeader{font-size:12px;font-weight:800;color:#64748b;text-transform:uppercase;background:#f8fafc;border-bottom:1px solid #e5e7eb}
+      .teamListRow{border-bottom:1px solid #edf0f3}
+      .teamListRow:last-child{border-bottom:0}
+      .teamListRow small{display:block;color:#64748b;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .projectIcon.small{width:34px;height:34px;min-width:34px;font-size:12px}
+      .subtaskSection{margin-top:18px;border-top:1px solid #e5e7eb;padding-top:18px}
+      .subtaskList{display:grid;gap:8px}
+      .subtaskRow{width:100%;display:flex;align-items:center;gap:10px;border:1px solid #e5e7eb;border-radius:12px;background:#fff;padding:10px 12px;cursor:pointer}
+      .subtaskRow:hover{background:#f8fafc}
+      .subtaskRow small{display:block;color:#64748b;margin-top:3px;white-space:normal}
       @media (max-width: 760px){
+        .teamListPanel{overflow-x:auto!important;-webkit-overflow-scrolling:touch!important}
+        .teamListHeader{display:none!important}
+        .teamListRow{display:grid!important;grid-template-columns:1fr auto!important;gap:8px!important;padding:13px 12px!important;min-width:0!important}
+        .teamListRow>span:nth-child(1){grid-column:1!important;min-width:0!important}
+        .teamListRow>span:nth-child(2){grid-column:1!important;color:#64748b!important;font-size:13px!important;padding-left:44px!important}
+        .teamListRow>span:nth-child(3){grid-column:1!important;color:#64748b!important;font-size:13px!important;padding-left:44px!important}
+        .teamListRow>span:nth-child(4){grid-column:2!important;grid-row:1/4!important;align-self:center!important}
+        .segmentedControl{width:100%!important}
+        .segmentedControl button{flex:1!important;min-height:42px!important}
+        .subtaskRow{align-items:flex-start!important}
+
         html,body{overflow-x:hidden}
         .appShell{display:block!important;min-width:0!important}
         .sidebar{display:none!important}
@@ -3082,6 +3316,16 @@ export default function Home(){
 
         <div className="topActions">
 
+          <select
+            aria-label="Language"
+            value={uiLang}
+            onChange={e=>setUiLang(e.target.value)}
+            style={{border:'1px solid #dbe4ef',background:'#fff',borderRadius:10,padding:'8px 10px',fontWeight:700,color:'#334155'}}
+          >
+            <option value="vi">VI</option>
+            <option value="en">EN</option>
+          </select>
+
           <button
             type="button"
             onClick={enablePush}
@@ -3224,6 +3468,7 @@ export default function Home(){
           }}
 
           updateTask={updateTask}
+          updateTaskAssignees={updateTaskAssignees}
 
           completeByCheckbox={
             completeByCheckbox
@@ -3268,6 +3513,9 @@ export default function Home(){
       {view==='mytasks' &&
         <MyTasks
           membership={membership}
+          projects={projects}
+          members={members}
+          onOpenProject={async(p)=>{await openProject(p,{tab:'overview'})}}
           onOpenTask={async(task)=>{
             if(!task?.project) return
 
@@ -3367,6 +3615,7 @@ export default function Home(){
 
     {taskDrawer &&
       <TaskDrawer
+        key={taskDrawer.id}
         task={taskDrawer}
 
         project={project}
@@ -3392,6 +3641,11 @@ export default function Home(){
         onUpdate={
           updateTask
         }
+
+        onUpdateAssignees={updateTaskAssignees}
+        onCreateSubtask={createSubtaskDetailed}
+        onOpenTask={t=>setTaskDrawer(t)}
+        onOpenParent={loadTaskIntoDrawer}
 
         canArchive={
           membership?.role==='manager'
@@ -3865,6 +4119,7 @@ function ProjectPage({
   openTask,
 
   updateTask,
+  updateTaskAssignees,
   completeByCheckbox,
 
   exportExcel,
@@ -4313,6 +4568,7 @@ function ProjectPage({
         }
 
         updateTask={updateTask}
+        updateTaskAssignees={updateTaskAssignees}
 
         members={
           assignableTaskMembers||members
@@ -4499,6 +4755,7 @@ function TaskList({
   completeByCheckbox,
 
   updateTask,
+  updateTaskAssignees,
 
   members
 }){
@@ -4658,20 +4915,18 @@ function TaskList({
             <span className="mobileTaskMeta">
               <span>{LABEL[t.status]||t.status}</span>
               <span>{PRIORITY[t.priority]||t.priority}</span>
-              <span>{t.profiles?.full_name||'Chưa assign'}</span>
+              <span>{(t.task_assignees||[]).map(a=>a.profiles?.full_name||a.profiles?.email).filter(Boolean).join(', ')||t.profiles?.full_name||'Chưa assign'}</span>
               {t.due_at&&<span>{fmtDate(t.due_at)}</span>}
             </span>
 
           </button>
 
 
-          <SmartMemberPicker
+          <MultiMemberPicker
             members={members}
-            value={t.assignee_id||''}
-            onChange={id=>updateTask(t.id,{assignee_id:id||null})}
+            values={(t.task_assignees||[]).map(x=>x.user_id).length?(t.task_assignees||[]).map(x=>x.user_id):(t.assignee_id?[t.assignee_id]:[])}
+            onChange={ids=>updateTaskAssignees?.(t.id,ids)}
             placeholder="Tìm người assign..."
-            emptyLabel="—"
-            compact
           />
 
 
@@ -4965,6 +5220,10 @@ function TaskDrawer({
 
   onClose,
   onUpdate,
+  onUpdateAssignees,
+  onCreateSubtask,
+  onOpenTask,
+  onOpenParent,
   canArchive=false,
   canDeleteTest=false,
   onArchive,
@@ -4973,8 +5232,20 @@ function TaskDrawer({
 
   const [comments,setComments]=useState([])
   const [activity,setActivity]=useState([])
+  const [subtasks,setSubtasks]=useState([])
+  const [subtaskCreateOpen,setSubtaskCreateOpen]=useState(false)
 
-  const [comment,setComment]=useState('')
+  const commentDraftKey=`fptu-work-comment-draft-${task.id}`
+  const [comment,setComment]=useState(()=>{
+    try{return typeof window!=='undefined'?(window.localStorage.getItem(commentDraftKey)||''):''}catch{return ''}
+  })
+
+  useEffect(()=>{
+    try{
+      if(comment) window.localStorage.setItem(commentDraftKey,comment)
+      else window.localStorage.removeItem(commentDraftKey)
+    }catch{}
+  },[comment,commentDraftKey])
 
   const [mentionedUsers,setMentionedUsers]=useState([])
 
@@ -5091,55 +5362,35 @@ function TaskDrawer({
 
     const [
       commentRes,
-      activityRes
+      activityRes,
+      subtaskRes
     ] = await Promise.all([
 
       supabase
         .from('task_comments')
-        .select(
-          '*, profiles(*)'
-        )
-        .eq(
-          'task_id',
-          task.id
-        )
-        .is(
-          'deleted_at',
-          null
-        )
-        .order(
-          'created_at'
-        ),
+        .select('*, profiles(*)')
+        .eq('task_id',task.id)
+        .is('deleted_at',null)
+        .order('created_at'),
 
       supabase
-        .from(
-          'task_activity_logs'
-        )
-        .select(
-          '*, profiles(*)'
-        )
-        .eq(
-          'task_id',
-          task.id
-        )
-        .order(
-          'created_at',
-          {
-            ascending:false
-          }
-        )
-        .limit(50)
+        .from('task_activity_logs')
+        .select('*, profiles(*)')
+        .eq('task_id',task.id)
+        .order('created_at',{ascending:false})
+        .limit(50),
 
+      supabase
+        .from('tasks')
+        .select('*, profiles!tasks_assignee_id_fkey(full_name,avatar_url,email), task_assignees(user_id, profiles(*))')
+        .eq('parent_task_id',task.id)
+        .is('archived_at',null)
+        .order('created_at',{ascending:true})
     ])
 
-
-    setComments(
-      commentRes.data||[]
-    )
-
-    setActivity(
-      activityRes.data||[]
-    )
+    setComments(commentRes.data||[])
+    setActivity(activityRes.data||[])
+    setSubtasks(subtaskRes.data||[])
   }
 
 
@@ -5350,6 +5601,7 @@ function TaskDrawer({
 
 
     setComment('')
+    try{window.localStorage.removeItem(commentDraftKey)}catch{}
     setMentionedUsers([])
     setMentionOpen(false)
     setMentionQuery('')
@@ -5436,6 +5688,8 @@ function TaskDrawer({
 
       <div className="drawerBody">
 
+        {task.parent_task_id && <button type="button" className="secondary compactBtn" style={{marginBottom:12}} onClick={()=>onOpenParent?.(task.parent_task_id)}>← Task cha</button>}
+
         <div className="fieldGrid">
 
           <Field label="Status">
@@ -5469,16 +5723,15 @@ function TaskDrawer({
           </Field>
 
 
-          <Field label="Assignee">
-
-            <SmartMemberPicker
+          <Field label="Assignees">
+            <MultiMemberPicker
               members={projectMembers}
-              value={task.assignee_id||''}
-              onChange={id=>onUpdate(task.id,{assignee_id:id||null})}
-              placeholder="Gõ tên hoặc email để assign..."
-              emptyLabel="— Chưa assign —"
+              values={(task.task_assignees||[]).map(x=>x.user_id).length
+                ? (task.task_assignees||[]).map(x=>x.user_id)
+                : (task.assignee_id?[task.assignee_id]:[])}
+              onChange={ids=>onUpdateAssignees?.(task.id,ids)}
+              placeholder="Gõ tên hoặc email để assign nhiều người..."
             />
-
           </Field>
 
 
@@ -5603,6 +5856,25 @@ function TaskDrawer({
 
         </section>
 
+
+        <section className="subtaskSection">
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,marginBottom:10}}>
+            <div>
+              <h3 style={{margin:0}}>Sub-task</h3>
+              <small style={{color:'#64748b'}}>Công việc con có status, deadline, priority, delivery link và nhiều người phụ trách như Task.</small>
+            </div>
+            <button type="button" className="secondary compactBtn" onClick={()=>setSubtaskCreateOpen(true)}>＋ Sub-task</button>
+          </div>
+          <div className="subtaskList">
+            {subtasks.length?subtasks.map(st=><button type="button" key={st.id} className="subtaskRow" onClick={()=>onOpenTask?.(st)}>
+              <span className={'statusBadge '+st.status}>{LABEL[st.status]||st.status}</span>
+              <span style={{minWidth:0,flex:1,textAlign:'left'}}>
+                <b style={{display:'block',whiteSpace:'normal'}}>{st.title}</b>
+                <small>{(st.task_assignees||[]).map(a=>a.profiles?.full_name||a.profiles?.email).filter(Boolean).join(', ')||'Chưa assign'} · {PRIORITY[st.priority]||st.priority} · {fmtDate(st.due_at)}</small>
+              </span>
+            </button>):<div className="empty" style={{padding:'12px 0'}}>Chưa có Sub-task.</div>}
+          </div>
+        </section>
 
         <section>
 
@@ -5943,6 +6215,19 @@ function TaskDrawer({
 
     </aside>
 
+    {subtaskCreateOpen && <TaskCreateDrawer
+      project={project}
+      members={projectMembers}
+      draftScope={`subtask-${task.id}`}
+      titleLabel="Tạo Sub-task mới"
+      onClose={()=>setSubtaskCreateOpen(false)}
+      onCreate={async form=>{
+        const result=await onCreateSubtask?.(task,form)
+        if(result?.ok){setSubtaskCreateOpen(false);await load()}
+        return result
+      }}
+    />}
+
   </div>
 }
 
@@ -5967,7 +6252,7 @@ function SmartMemberPicker({
   const wrapRef=useRef(null)
 
   const selected=members.find(m=>m.user_id===value)
-  const roleLabel=(role)=>role==='manager'?'Trưởng phòng':role==='team_lead'?'Team Lead':role==='lead'?'Project Lead':role==='viewer'?'Viewer':'Member'
+  const roleLabel=(role)=>role==='manager'?workspaceRoleLabel('manager'):role==='team_lead'?workspaceRoleLabel('team_lead'):role==='lead'?(getUILang()==='en'?'Project Lead':'Trưởng dự án'):role==='viewer'?(getUILang()==='en'?'Viewer':'Chỉ xem'):(getUILang()==='en'?'Member':'Thành viên')
   const memberText=(m)=>[
     m.profiles?.full_name,
     m.profiles?.email,
@@ -6059,6 +6344,62 @@ function SmartMemberPicker({
           </button>
         }):<div style={{padding:14,color:'#7b8491',textAlign:'center'}}>Không tìm thấy thành viên phù hợp.</div>}
       </div>
+    </div>}
+  </div>
+}
+
+
+// =====================================================
+// MULTI MEMBER PICKER v18.13
+// =====================================================
+
+function MultiMemberPicker({members=[],values=[],onChange,placeholder='Gõ tên hoặc email...',disabled=false}){
+  const [open,setOpen]=useState(false)
+  const [query,setQuery]=useState('')
+  const wrapRef=useRef(null)
+  const selectedIds=[...new Set((values||[]).filter(Boolean))]
+  const memberMap=new Map(members.map(m=>[m.user_id,m]))
+
+  useEffect(()=>{
+    function close(e){if(wrapRef.current&&!wrapRef.current.contains(e.target))setOpen(false)}
+    document.addEventListener('mousedown',close)
+    return()=>document.removeEventListener('mousedown',close)
+  },[])
+
+  const q=query.trim().toLowerCase()
+  const filtered=members.filter(m=>{
+    const text=[m.profiles?.full_name,m.profiles?.email,m.teams?.name,m.team?.name,m.role,m.role_in_project].filter(Boolean).join(' ').toLowerCase()
+    return !q||text.includes(q)
+  }).slice(0,20)
+
+  function toggle(id){
+    const next=selectedIds.includes(id)?selectedIds.filter(x=>x!==id):[...selectedIds,id]
+    onChange?.(next)
+  }
+
+  return <div ref={wrapRef} style={{position:'relative',width:'100%'}}>
+    <div style={{display:'flex',gap:6,flexWrap:'wrap',padding:'7px 9px',border:'1px solid #dfe3e8',borderRadius:10,background:disabled?'#f5f6f7':'#fff',minHeight:44,cursor:disabled?'not-allowed':'text'}} onClick={()=>!disabled&&setOpen(true)}>
+      {selectedIds.map(id=>{
+        const m=memberMap.get(id)
+        const name=m?.profiles?.full_name||m?.profiles?.email||'Member'
+        return <span key={id} style={{display:'inline-flex',alignItems:'center',gap:5,borderRadius:999,background:'#eef5ff',color:'#1d4ed8',padding:'5px 8px',fontSize:13,fontWeight:700}}>
+          {name}
+          {!disabled&&<button type="button" onClick={e=>{e.stopPropagation();toggle(id)}} style={{border:0,background:'transparent',padding:0,cursor:'pointer',color:'#1d4ed8'}}>×</button>}
+        </span>
+      })}
+      {!selectedIds.length&&<span style={{color:'#94a3b8',padding:'4px 2px'}}>— Chưa assign —</span>}
+      {!disabled&&<input value={query} onFocus={()=>setOpen(true)} onChange={e=>{setQuery(e.target.value);setOpen(true)}} placeholder={placeholder} style={{border:0,outline:'none',minWidth:170,flex:1,padding:'4px 2px',background:'transparent'}}/>}
+    </div>
+    {open&&!disabled&&<div style={{position:'absolute',zIndex:1500,top:'calc(100% + 5px)',left:0,right:0,background:'#fff',border:'1px solid #dfe3e8',borderRadius:12,boxShadow:'0 12px 32px rgba(15,23,42,.16)',maxHeight:330,overflowY:'auto',padding:6}}>
+      {filtered.length?filtered.map(m=>{
+        const checked=selectedIds.includes(m.user_id)
+        const name=m.profiles?.full_name||m.profiles?.email||'Member'
+        return <button type="button" key={m.user_id} onClick={()=>toggle(m.user_id)} style={{width:'100%',border:0,background:checked?'#fff3e8':'#fff',textAlign:'left',padding:'9px 10px',borderRadius:9,cursor:'pointer',display:'flex',gap:9,alignItems:'center'}}>
+          <input type="checkbox" readOnly checked={checked}/>
+          <Avatar p={m.profiles}/>
+          <span style={{minWidth:0}}><b style={{display:'block'}}>{name}</b><small style={{color:'#64748b'}}>{[m.teams?.name||m.team?.name,m.role||m.role_in_project,m.profiles?.email!==name?m.profiles?.email:null].filter(Boolean).join(' · ')}</small></span>
+        </button>
+      }):<div style={{padding:14,color:'#7b8491',textAlign:'center'}}>Không tìm thấy thành viên phù hợp.</div>}
     </div>}
   </div>
 }
@@ -6227,7 +6568,10 @@ function HomeDashboard({
 
 function MyTasks({
   membership,
-  onOpenTask
+  projects=[],
+  members=[],
+  onOpenTask,
+  onOpenProject
 }){
 
   const [rows,setRows]=useState([])
@@ -6236,6 +6580,12 @@ function MyTasks({
   const [searchText,setSearchText]=useState('')
   const [projectFilter,setProjectFilter]=useState('all')
   const [priorityFilter,setPriorityFilter]=useState('all')
+  const [myTab,setMyTab]=useState('tasks')
+  const [managedPermissionProjectIds,setManagedPermissionProjectIds]=useState([])
+  const [managedTaskRows,setManagedTaskRows]=useState([])
+  const [managedLoading,setManagedLoading]=useState(false)
+  const [projectQuick,setProjectQuick]=useState('all')
+  const [expandedProject,setExpandedProject]=useState(null)
   const isManager=String(membership?.role||'').toLowerCase()==='manager'
 
   async function deletePersonalOrOrphanTask(task){
@@ -6273,20 +6623,177 @@ function MyTasks({
       return
     }
 
+    let active=true
     setLoading(true)
 
-    supabase
-      .from('tasks')
-      .select('*, project:projects(*)')
-      .eq('assignee_id',membership.user_id)
-      .is('archived_at',null)
-      .order('created_at',{ascending:false})
-      .then(({data})=>{
-        setRows(data||[])
-        setLoading(false)
-      })
+    ;(async()=>{
+      const {data:assignedRows}=await supabase
+        .from('task_assignees')
+        .select('task_id')
+        .eq('user_id',membership.user_id)
 
+      const ids=[...new Set((assignedRows||[]).map(x=>x.task_id).filter(Boolean))]
+      let query=supabase
+        .from('tasks')
+        .select('*, project:projects(*), task_assignees(user_id, profiles(*))')
+        .is('archived_at',null)
+        .order('created_at',{ascending:false})
+
+      if(ids.length){
+        query=query.or(`assignee_id.eq.${membership.user_id},id.in.(${ids.join(',')})`)
+      }else{
+        query=query.eq('assignee_id',membership.user_id)
+      }
+
+      const {data}=await query
+      if(active){setRows(data||[]);setLoading(false)}
+    })()
+
+    return()=>{active=false}
   },[membership?.user_id])
+
+
+  useEffect(()=>{
+    let active=true
+    async function loadManagedPermissions(){
+      if(!membership?.user_id){setManagedPermissionProjectIds([]);return}
+      const {data,error}=await supabase
+        .from('project_members')
+        .select('project_id,role_in_project,can_manage_project_members,can_assign_task')
+        .eq('user_id',membership.user_id)
+      if(!active) return
+      if(error){console.error(error);setManagedPermissionProjectIds([]);return}
+      setManagedPermissionProjectIds((data||[])
+        .filter(x=>x.role_in_project==='lead'||x.can_manage_project_members||x.can_assign_task)
+        .map(x=>x.project_id))
+    }
+    loadManagedPermissions()
+    return()=>{active=false}
+  },[membership?.user_id])
+
+  const managedProjects=(projects||[])
+    .filter(p=>{
+      if(isManager) return true
+      if(p.lead_id===membership?.user_id) return true
+      if(managedPermissionProjectIds.includes(p.id)) return true
+      if(String(membership?.role||'').toLowerCase()==='team_lead' && membership?.team_id && p.team_id===membership.team_id) return true
+      return false
+    })
+    .filter(p=>!['archived','cancelled'].includes(String(p.status||'').toLowerCase()))
+
+  useEffect(()=>{
+    let active=true
+    async function loadManagedTasks(){
+      if(myTab!=='projects'){return}
+      const ids=managedProjects.map(p=>p.id)
+      if(!ids.length){setManagedTaskRows([]);setManagedLoading(false);return}
+      setManagedLoading(true)
+      let all=[]
+      let from=0
+      const size=1000
+      while(true){
+        const {data,error}=await supabase
+          .from('tasks')
+          .select('*, profiles!tasks_assignee_id_fkey(full_name,avatar_url,email), task_assignees(user_id, profiles(*))')
+          .in('project_id',ids)
+          .is('archived_at',null)
+          .order('created_at',{ascending:false})
+          .range(from,from+size-1)
+        if(error){console.error(error);break}
+        all=all.concat(data||[])
+        if(!data || data.length<size) break
+        from+=size
+        if(from>=10000) break
+      }
+      if(active){setManagedTaskRows(all);setManagedLoading(false)}
+    }
+    loadManagedTasks()
+    return()=>{active=false}
+  },[myTab,JSON.stringify(managedProjects.map(p=>p.id))])
+
+  const projectDayMs=24*60*60*1000
+  const projectNow=Date.now()
+  const projectIsDone=t=>t.status==='done'
+  const projectIsActive=t=>['todo','in_progress','review'].includes(t.status)
+  const projectIsOverdue=t=>!!t.due_at&&!projectIsDone(t)&&new Date(t.due_at).getTime()<projectNow
+  const projectIsOnTime=t=>projectIsDone(t)&&t.due_at&&t.completed_at&&new Date(t.completed_at).getTime()<=new Date(t.due_at).getTime()
+  const projectIsLateDone=t=>projectIsDone(t)&&t.due_at&&t.completed_at&&new Date(t.completed_at).getTime()>new Date(t.due_at).getTime()
+
+  function projectOnTime(list){
+    const measured=list.filter(t=>projectIsOnTime(t)||projectIsLateDone(t))
+    return measured.length?Math.round(measured.filter(projectIsOnTime).length/measured.length*100):null
+  }
+
+  function projectMetric(p){
+    const list=managedTaskRows.filter(t=>t.project_id===p.id)
+    const topLevel=list.filter(t=>!t.parent_task_id)
+    const total=topLevel.length
+    const done=topLevel.filter(projectIsDone).length
+    const active=topLevel.filter(projectIsActive).length
+    const review=topLevel.filter(t=>t.status==='review').length
+    const overdue=topLevel.filter(projectIsOverdue).length
+    const subtasks=list.filter(t=>!!t.parent_task_id).length
+    const progress=total?Math.round(done/total*100):0
+    const due=p.due_at?new Date(p.due_at).getTime():null
+    const daysLeft=due?Math.ceil((due-projectNow)/projectDayMs):null
+    const latestTs=Math.max(
+      new Date(p.updated_at||p.created_at||0).getTime()||0,
+      ...list.map(t=>new Date(t.updated_at||t.created_at||0).getTime()||0)
+    )
+    const staleDays=latestTs?Math.floor((projectNow-latestTs)/projectDayMs):null
+    let health='Healthy'
+    if(overdue>=2||(total&&overdue/total>=.2)||(daysLeft!==null&&daysLeft<=7&&daysLeft>=0&&progress<70)) health='At risk'
+    else if(overdue>0||review>=3||(daysLeft!==null&&daysLeft<=7&&daysLeft>=0&&progress<85)||(staleDays!==null&&staleDays>=5)) health='Watch'
+
+    const peopleMap=new Map()
+    list.forEach(t=>{
+      const ids=[
+        ...(t.assignee_id?[t.assignee_id]:[]),
+        ...(t.task_assignees||[]).map(a=>a.user_id)
+      ].filter(Boolean)
+      ;[...new Set(ids)].forEach(userId=>{
+        if(!peopleMap.has(userId)) peopleMap.set(userId,[])
+        peopleMap.get(userId).push(t)
+      })
+    })
+    const people=[...peopleMap.entries()].map(([userId,tasks])=>{
+      const member=(members||[]).find(m=>m.user_id===userId)
+      const activeTasks=tasks.filter(projectIsActive)
+      const overdueTasks=tasks.filter(projectIsOverdue)
+      const reviewTasks=tasks.filter(t=>t.status==='review')
+      const highTasks=activeTasks.filter(t=>['urgent','high'].includes(t.priority))
+      const score=Math.round((activeTasks.length+highTasks.length*2+overdueTasks.length*3+reviewTasks.length*.5)*10)/10
+      const workload=score<=3?'Low':score<=7?'Balanced':score<=11?'High':'Overloaded'
+      return {
+        userId,member,tasks:tasks.length,active:activeTasks.length,done:tasks.filter(projectIsDone).length,
+        overdue:overdueTasks.length,review:reviewTasks.length,ontime:projectOnTime(tasks),workload,score
+      }
+    }).sort((a,b)=>b.overdue-a.overdue||b.score-a.score)
+
+    return {p,list,total,done,active,review,overdue,subtasks,progress,daysLeft,staleDays,health,ontime:projectOnTime(topLevel),people}
+  }
+
+  const myProjectMetrics=managedProjects.map(projectMetric).sort((a,b)=>{
+    const hr={'At risk':0,'Watch':1,'Healthy':2}
+    return (hr[a.health]??9)-(hr[b.health]??9)||b.overdue-a.overdue||(a.daysLeft??9999)-(b.daysLeft??9999)
+  })
+
+  const visibleProjectMetrics=myProjectMetrics.filter(x=>{
+    if(projectQuick==='at_risk') return x.health==='At risk'
+    if(projectQuick==='overdue') return x.overdue>0
+    if(projectQuick==='review') return x.review>0
+    if(projectQuick==='due_soon') return x.daysLeft!==null&&x.daysLeft>=0&&x.daysLeft<=7
+    if(projectQuick==='stale') return x.staleDays!==null&&x.staleDays>=5
+    return true
+  })
+
+  const myProjectSummary={
+    total:myProjectMetrics.length,
+    atRisk:myProjectMetrics.filter(x=>x.health==='At risk').length,
+    overdue:myProjectMetrics.reduce((n,x)=>n+x.overdue,0),
+    review:myProjectMetrics.reduce((n,x)=>n+x.review,0),
+    overloaded:myProjectMetrics.reduce((n,x)=>n+x.people.filter(p=>p.workload==='Overloaded').length,0)
+  }
 
 
   const now=Date.now()
@@ -6398,11 +6905,17 @@ function MyTasks({
 
     <div className="pageHead">
       <div>
-        <h1>My Tasks</h1>
-        <p>Việc của bạn từ tất cả Project — ưu tiên việc trễ hạn, quan trọng và sắp đến deadline.</p>
+        <h1>{myTab==='tasks'?'My Tasks':'My Projects'}</h1>
+        <p>{myTab==='tasks'?'Việc của bạn từ tất cả Project — ưu tiên việc trễ hạn, quan trọng và sắp đến deadline.':'Các Project bạn đang chịu trách nhiệm — xem tiến độ, rủi ro và tình hình nhân sự ngay tại đây.'}</p>
       </div>
     </div>
 
+    <div style={{display:'inline-flex',gap:4,padding:4,border:'1px solid #dbe4ee',borderRadius:14,background:'#fff',marginBottom:16}}>
+      <button type="button" onClick={()=>setMyTab('tasks')} style={{border:0,borderRadius:10,padding:'9px 14px',fontWeight:900,cursor:'pointer',background:myTab==='tasks'?'#0f67c6':'transparent',color:myTab==='tasks'?'#fff':'#475569'}}>My Tasks</button>
+      <button type="button" onClick={()=>setMyTab('projects')} style={{border:0,borderRadius:10,padding:'9px 14px',fontWeight:900,cursor:'pointer',background:myTab==='projects'?'#0f67c6':'transparent',color:myTab==='projects'?'#fff':'#475569'}}>My Projects ({managedProjects.length})</button>
+    </div>
+
+    {myTab==='tasks' && <>
     <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:14}}>
       {quickFilters.map(([key,label])=>
         <button
@@ -6520,6 +7033,73 @@ function MyTasks({
 
     </div>
 
+    </>}
+
+    {myTab==='projects' && <>
+      <div className="homeKpiGrid" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(125px,1fr))',gap:10,marginBottom:14}}>
+        {[
+          ['Project quản lý',myProjectSummary.total,'#0f67c6','#eff6ff'],
+          ['At risk',myProjectSummary.atRisk,'#dc2626','#fff1f2'],
+          ['Task trễ',myProjectSummary.overdue,'#ea580c','#fff7ed'],
+          ['Chờ Review',myProjectSummary.review,'#7c3aed','#f5f3ff'],
+          ['Member quá tải',myProjectSummary.overloaded,'#b91c1c','#fef2f2']
+        ].map(([label,value,color,bg])=><div key={label} className="panel" style={{padding:'14px 15px',border:'1px solid #e2e8f0',background:bg}}><b style={{display:'block',fontSize:24,color}}>{value}</b><small style={{fontWeight:800,color:'#475569'}}>{label}</small></div>)}
+      </div>
+
+      <div className="mobileFilterScroller" style={{display:'flex',gap:8,overflowX:'auto',paddingBottom:6,marginBottom:14}}>
+        {[
+          ['all','Tất cả'],['at_risk','At risk'],['overdue','Có task trễ'],['review','Review backlog'],['due_soon','Sắp deadline'],['stale','Không activity ≥5 ngày']
+        ].map(([key,label])=><button key={key} type="button" onClick={()=>setProjectQuick(key)} style={{flex:'0 0 auto',border:'1px solid #e2e8f0',background:projectQuick===key?'#fff3e8':'#fff',color:projectQuick===key?'#b45309':'#475569',borderRadius:999,padding:'8px 12px',fontWeight:800,cursor:'pointer'}}>{label}</button>)}
+      </div>
+
+      {managedLoading?<div className="empty">Đang tải tình hình Project...</div>:visibleProjectMetrics.length?(
+        <div style={{display:'grid',gap:12}}>
+          {visibleProjectMetrics.map(x=>{
+            const healthColor=x.health==='At risk'?'#b91c1c':x.health==='Watch'?'#c2410c':'#166534'
+            const open=expandedProject===x.p.id
+            return <div key={x.p.id} className="panel" style={{padding:0,overflow:'hidden',border:'1px solid #dfe7ef',boxShadow:'0 8px 25px rgba(15,57,104,.05)'}}>
+              <div style={{padding:'16px 18px'}}>
+                <div style={{display:'flex',justifyContent:'space-between',gap:14,alignItems:'flex-start',flexWrap:'wrap'}}>
+                  <div style={{minWidth:0,flex:'1 1 300px'}}>
+                    <small style={{fontWeight:800,color:'#64748b'}}>{x.p.code||'PROJECT'}</small>
+                    <h3 style={{margin:'3px 0 6px',fontSize:20,color:'#0f2847'}}>{x.p.name}</h3>
+                    <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+                      <span style={{fontWeight:900,color:healthColor}}>{x.health}</span>
+                      <span style={{color:'#64748b'}}>•</span>
+                      <span style={{color:'#64748b'}}>{x.daysLeft===null?'Chưa có deadline':x.daysLeft<0?`Trễ deadline ${Math.abs(x.daysLeft)} ngày`:x.daysLeft===0?'Deadline hôm nay':`Còn ${x.daysLeft} ngày`}</span>
+                      {x.staleDays!==null&&x.staleDays>=5&&<span style={{color:'#c2410c',fontWeight:800}}>• {x.staleDays} ngày chưa cập nhật</span>}
+                    </div>
+                  </div>
+                  <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                    <button className="secondary" type="button" onClick={()=>setExpandedProject(open?null:x.p.id)}>{open?'Ẩn nhân sự':'Xem nhân sự'}</button>
+                    <button className="primary" type="button" onClick={()=>onOpenProject?.(x.p)}>Mở Project</button>
+                  </div>
+                </div>
+
+                <div style={{marginTop:14,height:9,borderRadius:999,background:'#e8eef5',overflow:'hidden'}}><div style={{height:'100%',width:`${Math.max(0,Math.min(100,x.progress))}%`,background:x.health==='At risk'?'#ef4444':x.health==='Watch'?'#f59e0b':'#22c55e'}}/></div>
+                <div style={{display:'flex',justifyContent:'space-between',gap:10,marginTop:6,color:'#64748b',fontSize:13}}><span>Tiến độ {x.progress}%</span><span>On-time {x.ontime===null?'—':x.ontime+'%'}</span></div>
+
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(82px,1fr))',gap:8,marginTop:14}}>
+                  {[
+                    ['Task',x.total],['Sub-task',x.subtasks],['Đang làm',x.active],['Done',x.done],['Review',x.review],['Overdue',x.overdue]
+                  ].map(([k,v])=><div key={k} style={{border:'1px solid #edf1f5',borderRadius:12,padding:'9px 10px',background:'#fbfdff'}}><b style={{display:'block',fontSize:17,color:k==='Overdue'&&v?'#b91c1c':'#0f2847'}}>{v}</b><small style={{color:'#64748b'}}>{k}</small></div>)}
+                </div>
+              </div>
+
+              {open&&<div style={{borderTop:'1px solid #e5e7eb',padding:'14px 18px',background:'#fbfdff'}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,marginBottom:10}}><b>Tiến độ nhân sự trong Project</b><small>{x.people.length} người đang có Task/Sub-task</small></div>
+                {x.people.length?<div className="reportTableWrap" style={{overflowX:'auto'}}><table style={{width:'100%',borderCollapse:'collapse',minWidth:720}}><thead><tr>{['Member','Active','Done','Overdue','Review','On-time','Workload'].map(h=><th key={h} style={{textAlign:'left',padding:'9px 8px',borderBottom:'1px solid #e5e7eb',fontSize:12,color:'#64748b'}}>{h}</th>)}</tr></thead><tbody>{x.people.map(pm=>{
+                  const name=pm.member?.profiles?.full_name||pm.member?.profiles?.email||(managedTaskRows.find(t=>(t.task_assignees||[]).some(a=>a.user_id===pm.userId))?.task_assignees||[]).find(a=>a.user_id===pm.userId)?.profiles?.full_name||'Member'
+                  const wc=pm.workload==='Overloaded'?'#b91c1c':pm.workload==='High'?'#c2410c':pm.workload==='Balanced'?'#166534':'#2563eb'
+                  return <tr key={pm.userId}><td style={{padding:'10px 8px',borderBottom:'1px solid #eef2f6'}}><b>{name}</b></td><td>{pm.active}</td><td>{pm.done}</td><td style={{color:pm.overdue?'#b91c1c':undefined,fontWeight:pm.overdue?900:400}}>{pm.overdue}</td><td>{pm.review}</td><td>{pm.ontime===null?'—':pm.ontime+'%'}</td><td style={{color:wc,fontWeight:900}}>{pm.workload}</td></tr>
+                })}</tbody></table></div>:<div className="empty">Project chưa có Task được assign cho thành viên.</div>}
+              </div>}
+            </div>
+          })}
+        </div>
+      ):<div className="empty">Bạn chưa có Project nào đang quản lý theo quyền hiện tại.</div>}
+    </>}
+
   </section>
 }
 
@@ -6537,116 +7117,42 @@ function Teams({
   onCreate,
   onEdit
 }){
+  const [mode,setMode]=useState(()=>{
+    try{return window.localStorage.getItem('fptu-work-team-view')||'list'}catch{return 'list'}
+  })
+  useEffect(()=>{try{window.localStorage.setItem('fptu-work-team-view',mode)}catch{}},[mode])
+
+  const canEditTeam=(t)=>membership?.role==='manager'||(membership?.role==='team_lead'&&t.lead_id===currentUserId)
+  const projectCount=(t)=>projects.filter(p=>p.team_id===t.id).length
 
   return <section className="page">
-
     <div className="pageHead">
-
-      <div>
-
-        <h1>
-          Teams
-        </h1>
-
-        <p>
-          Team, Team Lead và Project trong Workspace.
-        </p>
-
+      <div><h1>Teams</h1><p>Team, Team Lead và Project trong Workspace.</p></div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+        <div className="segmentedControl">
+          <button type="button" className={mode==='list'?'active':''} onClick={()=>setMode('list')}>☷ Danh sách</button>
+          <button type="button" className={mode==='grid'?'active':''} onClick={()=>setMode('grid')}>▦ Khối</button>
+        </div>
+        {canCreate&&<button className="primary" onClick={onCreate}>＋ Tạo Team</button>}
       </div>
-
-
-      {canCreate &&
-        <button
-          className="primary"
-          onClick={onCreate}
-        >
-          ＋ Tạo Team
-        </button>
-      }
-
     </div>
 
-
-    <div className="projectGrid">
-
-      {teams.map(
-        t=>
-          <article
-            className="projectCard"
-            key={t.id}
-          >
-
-            <div className="projectIcon">
-
-              {
-                (t.code||'T')
-                  .slice(0,2)
-              }
-
-            </div>
-
-
-            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10}}>
-              <h3 style={{margin:0}}>
-                {t.name}
-              </h3>
-
-              {(membership?.role==='manager' || (membership?.role==='team_lead' && t.lead_id===currentUserId)) &&
-                <button
-                  type="button"
-                  className="secondary compactBtn"
-                  onClick={()=>onEdit?.(t)}
-                >
-                  ✎ Sửa
-                </button>
-              }
-            </div>
-
-
-            <p>
-
-              {
-                t.description
-                ||
-                'Chưa có mô tả Team.'
-              }
-
-            </p>
-
-
-            <div className="projectFoot">
-
-              <span>
-
-                Lead: {
-                  t.lead?.full_name
-                  ||
-                  'Chưa gán'
-                }
-
-              </span>
-
-
-              <span>
-
-                {
-                  projects.filter(
-                    p=>
-                      p.team_id===t.id
-                  ).length
-                }
-
-                {' '}Projects
-
-              </span>
-
-            </div>
-
-          </article>
-      )}
-
-    </div>
-
+    {mode==='list'?<div className="panel teamListPanel">
+      <div className="teamListHeader"><span>Team</span><span>Team Lead</span><span>Projects</span><span></span></div>
+      {teams.map(t=><div className="teamListRow" key={t.id}>
+        <span style={{display:'flex',alignItems:'center',gap:10,minWidth:0}}><span className="projectIcon small">{(t.code||'T').slice(0,2)}</span><span style={{minWidth:0}}><b>{t.name}</b><small>{t.description||'Chưa có mô tả Team.'}</small></span></span>
+        <span>{t.lead?.full_name||'Chưa gán'}</span>
+        <span>{projectCount(t)}</span>
+        <span>{canEditTeam(t)&&<button type="button" className="secondary compactBtn" onClick={()=>onEdit?.(t)}>✎ Sửa</button>}</span>
+      </div>)}
+    </div>:<div className="projectGrid">
+      {teams.map(t=><article className="projectCard" key={t.id}>
+        <div className="projectIcon">{(t.code||'T').slice(0,2)}</div>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10}}><h3 style={{margin:0}}>{t.name}</h3>{canEditTeam(t)&&<button type="button" className="secondary compactBtn" onClick={()=>onEdit?.(t)}>✎ Sửa</button>}</div>
+        <p>{t.description||'Chưa có mô tả Team.'}</p>
+        <div className="projectFoot"><span>Lead: {t.lead?.full_name||'Chưa gán'}</span><span>{projectCount(t)} Projects</span></div>
+      </article>)}
+    </div>}
   </section>
 }
 
@@ -6660,100 +7166,37 @@ function Members({
   onOpen,
   onInvite
 }){
+  const [query,setQuery]=useState('')
+  const q=query.trim().toLowerCase()
+  const filtered=members.filter(m=>{
+    const text=[m.profiles?.full_name,m.profiles?.email,m.teams?.name,m.role].filter(Boolean).join(' ').toLowerCase()
+    return !q||text.includes(q)
+  })
 
   return <section className="page">
-
     <div className="pageHead">
-
-      <div>
-
-        <h1>
-          Members & Permissions
-        </h1>
-
-        <p>
-          Trưởng phòng quản lý role, team và quyền Workspace.
-        </p>
-
-      </div>
-
-
-      <button
-        className="primary"
-        onClick={onInvite}
-      >
-        ＋ Mời thành viên
-      </button>
-
+      <div><h1>Members & Permissions</h1><p>Trưởng phòng quản lý role, team và quyền Workspace.</p></div>
+      <button className="primary" onClick={onInvite}>＋ Mời thành viên</button>
     </div>
 
+    <div style={{marginBottom:12}}>
+      <input
+        value={query}
+        onChange={e=>setQuery(e.target.value)}
+        placeholder="Tìm theo tên hoặc email..."
+        style={{width:'100%',maxWidth:520,border:'1px solid #dfe3e8',borderRadius:10,padding:'11px 12px',background:'#fff'}}
+      />
+    </div>
 
     <div className="panel memberTable">
-
-      {members.map(
-        m=>
-          <button
-            className="memberRow"
-
-            key={m.id}
-
-            onClick={()=>
-              onOpen(m)
-            }
-          >
-
-            <Avatar
-              p={m.profiles}
-            />
-
-
-            <span>
-
-              <b>
-
-                {
-                  m.profiles
-                    ?.full_name
-                  ||
-                  m.profiles
-                    ?.email
-                }
-
-              </b>
-
-
-              <small>
-
-                {
-                  m.profiles
-                    ?.email
-                }
-
-              </small>
-
-            </span>
-
-
-            <span>
-
-              {
-                m.teams?.name
-                ||
-                '—'
-              }
-
-            </span>
-
-
-            <span className="rolePill">
-              {m.role}
-            </span>
-
-          </button>
-      )}
-
+      {filtered.map(m=><button className="memberRow" key={m.id} onClick={()=>onOpen(m)}>
+        <Avatar p={m.profiles}/>
+        <span><b>{m.profiles?.full_name||m.profiles?.email}</b><small>{m.profiles?.email}</small></span>
+        <span>{m.teams?.name||'—'}</span>
+        <span className="rolePill">{workspaceRoleLabel(m.role)}</span>
+      </button>)}
+      {!filtered.length&&<div className="empty">Không tìm thấy thành viên phù hợp.</div>}
     </div>
-
   </section>
 }
 
@@ -6793,7 +7236,7 @@ function Reports({
       while(true){
         const {data,error}=await supabase
           .from('tasks')
-          .select('*, profiles!tasks_assignee_id_fkey(full_name,avatar_url,email), project:projects(id,name,code,team_id,lead_id,due_at,status,updated_at)')
+          .select('*, profiles!tasks_assignee_id_fkey(full_name,avatar_url,email), task_assignees(user_id, profiles(*)), project:projects(id,name,code,team_id,lead_id,due_at,status,updated_at)')
           .in('project_id',ids)
           .is('archived_at',null)
           .order('created_at',{ascending:false})
@@ -6824,16 +7267,17 @@ function Reports({
 
   const projectMap=new Map((projects||[]).map(p=>[p.id,p]))
   const memberMap=new Map((members||[]).map(m=>[m.user_id,m]))
+  const taskHasMember=(t,userId)=>t.assignee_id===userId||(t.task_assignees||[]).some(a=>a.user_id===userId)
   const q=searchText.trim().toLowerCase()
 
   const filtered=rows
     .filter(inPeriod)
     .filter(t=>projectFilter==='all'||t.project_id===projectFilter)
-    .filter(t=>memberFilter==='all'||t.assignee_id===memberFilter)
+    .filter(t=>memberFilter==='all'||taskHasMember(t,memberFilter))
     .filter(t=>statusFilter==='all'||t.status===statusFilter)
     .filter(t=>teamFilter==='all'||(projectMap.get(t.project_id)?.team_id||t.project?.team_id)===teamFilter)
-    .filter(t=>quick==='all'||(quick==='overdue'&&isOverdue(t))||(quick==='review'&&t.status==='review')||(quick==='priority'&&isHigh(t))||(quick==='unassigned'&&!t.assignee_id))
-    .filter(t=>!q||[t.title,t.code,t.project?.name,t.project?.code,t.profiles?.full_name,t.profiles?.email].filter(Boolean).some(v=>String(v).toLowerCase().includes(q)))
+    .filter(t=>quick==='all'||(quick==='overdue'&&isOverdue(t))||(quick==='review'&&t.status==='review')||(quick==='priority'&&isHigh(t))||(quick==='unassigned'&&!t.assignee_id&&!(t.task_assignees||[]).length))
+    .filter(t=>!q||[t.title,t.code,t.project?.name,t.project?.code,t.profiles?.full_name,t.profiles?.email,...(t.task_assignees||[]).flatMap(a=>[a.profiles?.full_name,a.profiles?.email])].filter(Boolean).some(v=>String(v).toLowerCase().includes(q)))
 
   function calcOnTime(list){
     const measured=list.filter(t=>isOnTime(t)||isLateDone(t))
@@ -6864,7 +7308,7 @@ function Reports({
   const projectMetrics=(projects||[]).map(pMetric).filter(x=>projectFilter==='all'||x.p.id===projectFilter).sort((a,b)=>b.overdue-a.overdue||b.total-a.total)
 
   function personMetric(m){
-    const list=filtered.filter(t=>t.assignee_id===m.user_id)
+    const list=filtered.filter(t=>taskHasMember(t,m.user_id))
     const active=list.filter(isActive)
     const activeProjects=new Set(active.map(t=>t.project_id)).size
     const overdue=list.filter(isOverdue).length
@@ -7059,6 +7503,21 @@ function MemberDrawer({
   }
 
 
+
+  async function removeWorkspaceMember(){
+    const name=item.profiles?.full_name||item.profiles?.email||'thành viên này'
+    const ok=window.confirm(`Xóa ${name} khỏi Workspace?\n\nTài khoản Google/Profile không bị xóa, nhưng membership sẽ chuyển Inactive và người này bị gỡ khỏi Project/Team đang quản lý.`)
+    if(!ok) return
+    const confirmText=window.prompt('Nhập REMOVE để xác nhận:')
+    if(confirmText!=='REMOVE') return
+    setSaving(true)
+    const {error}=await supabase.rpc('remove_workspace_member_safe',{p_membership_id:item.id})
+    setSaving(false)
+    if(error){alert('Không xóa được member: '+error.message);return}
+    await onSaved?.()
+    onClose?.()
+  }
+
   return <div className="drawerWrap">
 
     <aside className="drawer narrow">
@@ -7246,6 +7705,15 @@ function MemberDrawer({
           }
 
         </button>
+        <button
+          type="button"
+          className="secondary full"
+          disabled={saving}
+          onClick={removeWorkspaceMember}
+          style={{marginTop:10,color:'#b42318',borderColor:'#f0b4ad'}}
+        >
+          🗑 Xóa khỏi Workspace
+        </button>
         </div>
 
       </div>
@@ -7259,9 +7727,9 @@ function MemberDrawer({
 // =====================================================
 // MOBILE / FULL TASK CREATE DRAWER
 // =====================================================
-function TaskCreateDrawer({project,members,onClose,onCreate}){
-  const draftKey=`fptu-work-task-draft-${project?.id||'unknown'}`
-  const emptyForm={title:'',description:'',assignee_id:'',due_at:'',priority:'medium',delivery_url:''}
+function TaskCreateDrawer({project,members,onClose,onCreate,draftScope='task',titleLabel='Tạo Task mới'}){
+  const draftKey=`fptu-work-${draftScope}-draft-${project?.id||'unknown'}`
+  const emptyForm={title:'',description:'',assignee_ids:[],due_at:'',priority:'medium',delivery_url:''}
   const [form,setForm]=useState(()=>{
     try{
       const raw=typeof window!=='undefined'?window.localStorage.getItem(draftKey):null
@@ -7304,7 +7772,7 @@ function TaskCreateDrawer({project,members,onClose,onCreate}){
   return <div className="drawerWrap mobileTaskCreate" onMouseDown={e=>e.target===e.currentTarget&&onClose()}>
     <aside className="drawer taskCreateDrawer">
       <div className="drawerHead">
-        <div><small>{project?.code}</small><h2 style={{margin:0}}>Tạo Task mới</h2></div>
+        <div><small>{project?.code}</small><h2 style={{margin:0}}>{titleLabel}</h2></div>
         <button type="button" onClick={onClose}>×</button>
       </div>
       <form className="drawerBody taskCreateBody" onSubmit={submit}>
@@ -7316,7 +7784,7 @@ function TaskCreateDrawer({project,members,onClose,onCreate}){
           <textarea rows="5" value={form.description} onChange={e=>setForm({...form,description:e.target.value})} placeholder="Mô tả rõ yêu cầu, đầu ra, lưu ý..." />
         </Field>
         <Field label="Người phụ trách">
-          <SmartMemberPicker members={members||[]} value={form.assignee_id} onChange={id=>setForm({...form,assignee_id:id})} placeholder="Gõ tên, email, Team hoặc role..." emptyLabel="— Chưa assign —" />
+          <MultiMemberPicker members={members||[]} values={form.assignee_ids||[]} onChange={ids=>setForm({...form,assignee_ids:ids})} placeholder="Gõ tên, email, Team hoặc role..." />
         </Field>
         <div className="fieldGrid taskCreateGrid">
           <Field label="Deadline"><input type="date" value={form.due_at} onChange={e=>setForm({...form,due_at:e.target.value})}/></Field>
@@ -7667,11 +8135,15 @@ function ProjectMemberDrawer({
           <select
             value={role}
 
-            onChange={e=>
-              setRole(
-                e.target.value
-              )
-            }
+            onChange={e=>{
+              const next=e.target.value
+              setRole(next)
+              if(next==='viewer'){
+                setCanCreateTask(false)
+                setCanAssignTask(false)
+                setCanManageMembers(false)
+              }
+            }}
           >
 
             <option value="member">
@@ -7699,6 +8171,7 @@ function ProjectMemberDrawer({
 
           <input
             type="checkbox"
+            disabled={role==='viewer'}
 
             checked={
               canCreateTask
@@ -7722,6 +8195,7 @@ function ProjectMemberDrawer({
 
           <input
             type="checkbox"
+            disabled={role==='viewer'}
 
             checked={
               canAssignTask
@@ -7745,6 +8219,7 @@ function ProjectMemberDrawer({
 
           <input
             type="checkbox"
+            disabled={role==='viewer'}
 
             checked={
               canManageMembers
