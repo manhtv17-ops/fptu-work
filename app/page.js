@@ -1,6 +1,6 @@
 'use client'
 
-// FPTU Work v18.13 - Workflow Upgrade: subtasks, multi-assignee, member removal, list view, bilingual UI, My Projects
+// FPTU Work v18.14 - Assigned by Me, deadline follow-up, deep-link reminders
 
 import {
   useEffect,
@@ -135,7 +135,8 @@ const UI_TEXT = [
   ['Can create tasks','Được tạo task'],['Can assign tasks','Được assign task'],['Can manage Project members','Được quản lý member Project'],
   ['Draft is auto-saved on this device. You can leave and come back without losing content.','Nháp được tự động lưu trên thiết bị này. Có thể đóng/mở lại form mà không mất nội dung.'],
   ['No tasks match the current filters.','Không có task phù hợp với bộ lọc hiện tại.'],['No data.','Không có dữ liệu.'],
-  ['Healthy','Ổn định'],['Watch','Cần theo dõi'],['At risk','Có rủi ro'],['Balanced','Cân bằng'],['Overloaded','Quá tải'],['Workload','Tải công việc'],['On-time','Đúng hạn'],['Review backlog','Tồn đọng duyệt']
+  ['Healthy','Ổn định'],['Watch','Cần theo dõi'],['At risk','Có rủi ro'],['Balanced','Cân bằng'],['Overloaded','Quá tải'],['Workload','Tải công việc'],['On-time','Đúng hạn'],['Review backlog','Tồn đọng duyệt'],
+  ['Assigned by Me','Tôi đã giao'],['Due soon','Sắp đến hạn'],['Due today','Đến hạn hôm nay'],['Remind now','Nhắc ngay'],['Assigned to','Đã giao cho'],['Last updated','Cập nhật gần nhất']
 ]
 
 const UI_ALIASES = {
@@ -6586,6 +6587,11 @@ function MyTasks({
   const [managedLoading,setManagedLoading]=useState(false)
   const [projectQuick,setProjectQuick]=useState('all')
   const [expandedProject,setExpandedProject]=useState(null)
+  const [assignedByMeRows,setAssignedByMeRows]=useState([])
+  const [assignedByMeLoading,setAssignedByMeLoading]=useState(false)
+  const [assignedByMeFilter,setAssignedByMeFilter]=useState('all')
+  const [assignedByMeSearch,setAssignedByMeSearch]=useState('')
+  const [remindingTaskId,setRemindingTaskId]=useState(null)
   const isManager=String(membership?.role||'').toLowerCase()==='manager'
 
   async function deletePersonalOrOrphanTask(task){
@@ -6652,6 +6658,40 @@ function MyTasks({
     return()=>{active=false}
   },[membership?.user_id])
 
+
+  useEffect(()=>{
+    let active=true
+    async function loadAssignedByMe(){
+      if(myTab!=='assigned' || !membership?.user_id) return
+      setAssignedByMeLoading(true)
+      const {data,error}=await supabase
+        .from('tasks')
+        .select('*, project:projects(*), task_assignees(user_id, profiles(*)), profiles!tasks_assignee_id_fkey(full_name,avatar_url,email)')
+        .eq('assigner_id',membership.user_id)
+        .is('archived_at',null)
+        .order('created_at',{ascending:false})
+      if(!active) return
+      if(error){
+        console.error(error)
+        setAssignedByMeRows([])
+      }else{
+        setAssignedByMeRows(data||[])
+      }
+      setAssignedByMeLoading(false)
+    }
+    loadAssignedByMe()
+    return()=>{active=false}
+  },[myTab,membership?.user_id])
+
+  async function remindAssignedTask(task){
+    if(!task?.id || remindingTaskId) return
+    setRemindingTaskId(task.id)
+    const {data,error}=await supabase.rpc('send_task_followup_reminder_safe',{p_task_id:task.id})
+    setRemindingTaskId(null)
+    if(error){alert('Không gửi được nhắc việc: '+error.message);return}
+    const count=Number(data||0)
+    alert(count>0?`Đã gửi nhắc việc tới ${count} người phụ trách.`:'Task này chưa có người phụ trách để nhắc.')
+  }
 
   useEffect(()=>{
     let active=true
@@ -6884,6 +6924,51 @@ function MyTasks({
       return new Date(b.created_at||0)-new Date(a.created_at||0)
     })
 
+  const assignedDueState=(t)=>{
+    if(!t?.due_at || isDone(t)) return 'none'
+    const diff=Math.ceil((new Date(t.due_at).getTime()-now)/dayMs)
+    if(diff<0) return 'overdue'
+    if(diff===0) return 'today'
+    if(diff<=3) return 'soon'
+    return 'normal'
+  }
+
+  const assignedByMeCounts={
+    all:assignedByMeRows.length,
+    soon:assignedByMeRows.filter(t=>assignedDueState(t)==='soon').length,
+    today:assignedByMeRows.filter(t=>assignedDueState(t)==='today').length,
+    overdue:assignedByMeRows.filter(t=>assignedDueState(t)==='overdue').length,
+    todo:assignedByMeRows.filter(t=>t.status==='todo').length,
+    in_progress:assignedByMeRows.filter(t=>t.status==='in_progress').length,
+    review:assignedByMeRows.filter(t=>t.status==='review').length,
+    done:assignedByMeRows.filter(t=>t.status==='done').length
+  }
+
+  const visibleAssignedByMe=assignedByMeRows
+    .filter(t=>{
+      if(assignedByMeFilter==='soon') return assignedDueState(t)==='soon'
+      if(assignedByMeFilter==='today') return assignedDueState(t)==='today'
+      if(assignedByMeFilter==='overdue') return assignedDueState(t)==='overdue'
+      if(['todo','in_progress','review','done'].includes(assignedByMeFilter)) return t.status===assignedByMeFilter
+      return true
+    })
+    .filter(t=>{
+      const q=assignedByMeSearch.trim().toLowerCase()
+      if(!q) return true
+      return [
+        t.title,t.code,t.project?.name,t.project?.code,t.profiles?.full_name,t.profiles?.email,
+        ...(t.task_assignees||[]).flatMap(a=>[a.profiles?.full_name,a.profiles?.email])
+      ].filter(Boolean).some(v=>String(v).toLowerCase().includes(q))
+    })
+    .sort((a,b)=>{
+      const rank={overdue:0,today:1,soon:2,normal:3,none:4}
+      const d=(rank[assignedDueState(a)]??9)-(rank[assignedDueState(b)]??9)
+      if(d) return d
+      const aDue=a.due_at?new Date(a.due_at).getTime():Number.MAX_SAFE_INTEGER
+      const bDue=b.due_at?new Date(b.due_at).getTime():Number.MAX_SAFE_INTEGER
+      return aDue-bDue
+    })
+
   const quickFilters=[
     ['all','Tất cả'],
     ['need','Cần làm'],
@@ -6905,13 +6990,18 @@ function MyTasks({
 
     <div className="pageHead">
       <div>
-        <h1>{myTab==='tasks'?'My Tasks':'My Projects'}</h1>
-        <p>{myTab==='tasks'?'Việc của bạn từ tất cả Project — ưu tiên việc trễ hạn, quan trọng và sắp đến deadline.':'Các Project bạn đang chịu trách nhiệm — xem tiến độ, rủi ro và tình hình nhân sự ngay tại đây.'}</p>
+        <h1>{myTab==='tasks'?'My Tasks':myTab==='assigned'?'Assigned by Me':'My Projects'}</h1>
+        <p>{myTab==='tasks'
+          ?'Việc của bạn từ tất cả Project — ưu tiên việc trễ hạn, quan trọng và sắp đến deadline.'
+          :myTab==='assigned'
+            ?'Các Task bạn đã giao — theo dõi người thực hiện, deadline, trạng thái và nhắc việc ngay khi cần.'
+            :'Các Project bạn đang chịu trách nhiệm — xem tiến độ, rủi ro và tình hình nhân sự ngay tại đây.'}</p>
       </div>
     </div>
 
     <div style={{display:'inline-flex',gap:4,padding:4,border:'1px solid #dbe4ee',borderRadius:14,background:'#fff',marginBottom:16}}>
       <button type="button" onClick={()=>setMyTab('tasks')} style={{border:0,borderRadius:10,padding:'9px 14px',fontWeight:900,cursor:'pointer',background:myTab==='tasks'?'#0f67c6':'transparent',color:myTab==='tasks'?'#fff':'#475569'}}>My Tasks</button>
+      <button type="button" onClick={()=>setMyTab('assigned')} style={{border:0,borderRadius:10,padding:'9px 14px',fontWeight:900,cursor:'pointer',background:myTab==='assigned'?'#0f67c6':'transparent',color:myTab==='assigned'?'#fff':'#475569'}}>Assigned by Me ({assignedByMeRows.length})</button>
       <button type="button" onClick={()=>setMyTab('projects')} style={{border:0,borderRadius:10,padding:'9px 14px',fontWeight:900,cursor:'pointer',background:myTab==='projects'?'#0f67c6':'transparent',color:myTab==='projects'?'#fff':'#475569'}}>My Projects ({managedProjects.length})</button>
     </div>
 
@@ -7033,6 +7123,49 @@ function MyTasks({
 
     </div>
 
+    </>}
+
+
+    {myTab==='assigned' && <>
+      <div className="homeKpiGrid" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(118px,1fr))',gap:10,marginBottom:14}}>
+        {[
+          ['Đã giao',assignedByMeCounts.all,'#0f67c6','#eff6ff'],
+          ['Sắp đến hạn',assignedByMeCounts.soon,'#d97706','#fff7ed'],
+          ['Hôm nay',assignedByMeCounts.today,'#ea580c','#fff7ed'],
+          ['Trễ hạn',assignedByMeCounts.overdue,'#dc2626','#fff1f2'],
+          ['Chờ Review',assignedByMeCounts.review,'#7c3aed','#f5f3ff']
+        ].map(([label,value,color,bg])=><div key={label} className="panel" style={{padding:'13px 14px',border:'1px solid #e2e8f0',background:bg}}><b style={{display:'block',fontSize:23,color}}>{value}</b><small style={{fontWeight:800,color:'#475569'}}>{label}</small></div>)}
+      </div>
+
+      <div className="mobileFilterScroller" style={{display:'flex',gap:8,overflowX:'auto',paddingBottom:6,marginBottom:12}}>
+        {[
+          ['all','Tất cả'],['soon','Sắp đến hạn'],['today','Hôm nay'],['overdue','Trễ hạn'],['todo','Chưa bắt đầu'],['in_progress','Đang làm'],['review','Chờ Review'],['done','Hoàn thành']
+        ].map(([key,label])=><button key={key} type="button" onClick={()=>setAssignedByMeFilter(key)} style={{flex:'0 0 auto',border:'1px solid #e2e8f0',background:assignedByMeFilter===key?'#fff3e8':'#fff',color:assignedByMeFilter===key?'#b45309':'#475569',borderRadius:999,padding:'8px 12px',fontWeight:800,cursor:'pointer'}}>{label} ({assignedByMeCounts[key]||0})</button>)}
+      </div>
+
+      <input value={assignedByMeSearch} onChange={e=>setAssignedByMeSearch(e.target.value)} placeholder="Tìm theo Task, Project hoặc tên người được giao..." style={{width:'100%',boxSizing:'border-box',border:'1px solid #e5e7eb',borderRadius:12,padding:'11px 13px',background:'#fff',marginBottom:12}} />
+
+      <div className="panel taskPanel">
+        {assignedByMeLoading?<div className="empty">Đang tải Task bạn đã giao...</div>:visibleAssignedByMe.length?visibleAssignedByMe.map(t=>{
+          const dueState=assignedDueState(t)
+          const assigneeNames=[...(t.task_assignees||[]).map(a=>a.profiles?.full_name||a.profiles?.email),...(t.task_assignees||[]).length?[]:[t.profiles?.full_name||t.profiles?.email]].filter(Boolean)
+          const dueLabel=dueState==='overdue'?overdueText(t):dueState==='today'?'Đến hạn hôm nay':dueState==='soon'?`Còn ${Math.max(1,Math.ceil((new Date(t.due_at).getTime()-now)/dayMs))} ngày`:fmtDate(t.due_at)
+          const dueColor=dueState==='overdue'?'#b91c1c':dueState==='today'?'#ea580c':dueState==='soon'?'#d97706':'#64748b'
+          return <div key={t.id} style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) auto',gap:0,borderBottom:'1px solid #edf0f3'}}>
+            <button type="button" className="memberRow" onClick={()=>t.project?.id?onOpenTask?.(t):alert('Task này không còn Project để mở.')} style={{alignItems:'center',borderBottom:0,textAlign:'left'}}>
+              <span className={'statusBadge '+t.status}>{LABEL[t.status]||t.status}</span>
+              <span style={{minWidth:0}}>
+                <b style={{display:'block'}}>{t.title}</b>
+                <small style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}><span>{t.project?.name||'Task không còn Project'} · {t.code}</span>{t.priority&&<span style={{fontWeight:900,color:['urgent','high'].includes(t.priority)?'#b91c1c':'#64748b'}}>{PRIORITY[t.priority]||t.priority}</span>}</small>
+                <small style={{display:'block',marginTop:5,color:'#475569'}}><b>Đã giao cho:</b> {assigneeNames.join(', ')||'Chưa assign'}</small>
+                <small style={{display:'block',marginTop:3,color:'#94a3b8'}}>Cập nhật gần nhất: {fmtDateTime(t.updated_at||t.created_at)}</small>
+              </span>
+              <span style={{textAlign:'right',minWidth:110}}><b style={{color:dueColor}}>{dueLabel}</b><small style={{display:'block',color:'#64748b',marginTop:4}}>Bấm để mở Task →</small></span>
+            </button>
+            {!isDone(t)&&<button type="button" onClick={(e)=>{e.stopPropagation();remindAssignedTask(t)}} disabled={remindingTaskId===t.id} style={{border:0,borderLeft:'1px solid #edf0f3',background:'#fff7ed',color:'#b45309',padding:'0 14px',fontWeight:900,cursor:'pointer',minWidth:92}}>{remindingTaskId===t.id?'Đang gửi...':'🔔 Nhắc ngay'}</button>}
+          </div>
+        }):<div className="empty">Chưa có Task nào bạn đã giao phù hợp với bộ lọc.</div>}
+      </div>
     </>}
 
     {myTab==='projects' && <>
