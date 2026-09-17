@@ -1,0 +1,148 @@
+name: FPTU Work Backup 12h
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Vietnam time (UTC+7): 12:00 and 00:00 daily
+    - cron: '0 5,17 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      TZ: Asia/Ho_Chi_Minh
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      RCLONE_CONFIG: ${{ secrets.RCLONE_CONFIG }}
+      BACKUP_REMOTE: gdrive:FPTU MKT Work Backup
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Validate required secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -n "$SUPABASE_DB_URL" ] || { echo "Missing SUPABASE_DB_URL"; exit 1; }
+          [ -n "$NEXT_PUBLIC_SUPABASE_URL" ] || { echo "Missing NEXT_PUBLIC_SUPABASE_URL"; exit 1; }
+          [ -n "$SUPABASE_SERVICE_ROLE_KEY" ] || { echo "Missing SUPABASE_SERVICE_ROLE_KEY"; exit 1; }
+          [ -n "$RCLONE_CONFIG" ] || { echo "Missing RCLONE_CONFIG"; exit 1; }
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install app dependencies
+        run: npm ci
+
+      - name: Install rclone
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL https://rclone.org/install.sh | sudo bash
+          mkdir -p "$HOME/.config/rclone"
+          printf '%s' "$RCLONE_CONFIG" > "$HOME/.config/rclone/rclone.conf"
+          chmod 600 "$HOME/.config/rclone/rclone.conf"
+          rclone listremotes
+
+      - name: Prepare backup folder
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          STAMP=$(date '+%Y-%m-%d_%H-%M-%S')
+          DAY=$(date '+%Y-%m-%d')
+          ROOT="backup/$STAMP"
+          mkdir -p "$ROOT/database" "$ROOT/storage"
+          echo "stamp=$STAMP" >> "$GITHUB_OUTPUT"
+          echo "day=$DAY" >> "$GITHUB_OUTPUT"
+          echo "root=$ROOT" >> "$GITHUB_OUTPUT"
+
+      - name: Backup database roles
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase db dump --db-url "$SUPABASE_DB_URL" -f "${{ steps.meta.outputs.root }}/database/roles.sql" --role-only
+
+      - name: Backup database schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase db dump --db-url "$SUPABASE_DB_URL" -f "${{ steps.meta.outputs.root }}/database/schema.sql"
+
+      - name: Backup database data
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase db dump --db-url "$SUPABASE_DB_URL" -f "${{ steps.meta.outputs.root }}/database/data.sql" --data-only --use-copy -x "storage.buckets_vectors" -x "storage.vector_indexes"
+
+      - name: Backup Supabase Storage objects
+        shell: bash
+        env:
+          BACKUP_STORAGE_DIR: ${{ steps.meta.outputs.root }}/storage
+        run: |
+          set -euo pipefail
+          node scripts/backup-storage.mjs
+
+      - name: Create manifest and archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="${{ steps.meta.outputs.root }}"
+          STAMP="${{ steps.meta.outputs.stamp }}"
+          cat > "$ROOT/backup-manifest.txt" <<EOF
+          FPTU MKT Work Backup
+          Timestamp: $STAMP
+          Runner timezone: Asia/Ho_Chi_Minh
+          Source repository: $GITHUB_REPOSITORY
+          Commit: $GITHUB_SHA
+          Includes: database roles, schema, data, Supabase Storage objects
+          EOF
+          tar -czf "backup/fptu-work-$STAMP.tar.gz" -C backup "$STAMP"
+          sha256sum "backup/fptu-work-$STAMP.tar.gz" > "backup/fptu-work-$STAMP.sha256"
+
+      - name: Upload backup to Google Drive
+        shell: bash
+        run: |
+          set -euo pipefail
+          STAMP="${{ steps.meta.outputs.stamp }}"
+          DAY="${{ steps.meta.outputs.day }}"
+          DEST="$BACKUP_REMOTE/$DAY"
+          rclone copy "backup/fptu-work-$STAMP.tar.gz" "$DEST" --checksum --transfers 2 --checkers 4
+          rclone copy "backup/fptu-work-$STAMP.sha256" "$DEST" --checksum
+          echo "Uploaded to $DEST"
+
+      - name: Verify uploaded backup exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          STAMP="${{ steps.meta.outputs.stamp }}"
+          DAY="${{ steps.meta.outputs.day }}"
+          DEST="$BACKUP_REMOTE/$DAY"
+          rclone lsf "$DEST" | grep -F "fptu-work-$STAMP.tar.gz"
+          rclone lsf "$DEST" | grep -F "fptu-work-$STAMP.sha256"
+
+      - name: Retention cleanup - keep 30 days
+        shell: bash
+        run: |
+          set -euo pipefail
+          rclone delete "$BACKUP_REMOTE" --min-age 30d --include '*.tar.gz' --include '*.sha256'
+          rclone rmdirs "$BACKUP_REMOTE" --leave-root || true
+
+      - name: Cleanup runner
+        if: always()
+        shell: bash
+        run: rm -rf backup "$HOME/.config/rclone/rclone.conf"
