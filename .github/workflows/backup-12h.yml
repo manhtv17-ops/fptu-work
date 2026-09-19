@@ -13,6 +13,7 @@ jobs:
   backup:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+
     env:
       TZ: Asia/Ho_Chi_Minh
       SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
@@ -28,9 +29,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          [ -n "$SUPABASE_DB_URL" ] || { echo "Missing SUPABASE_DB_URL"; exit 1; }
-          [ -n "$NEXT_PUBLIC_SUPABASE_URL" ] || { echo "Missing NEXT_PUBLIC_SUPABASE_URL"; exit 1; }
-          [ -n "$SUPABASE_SERVICE_ROLE_KEY" ] || { echo "Missing SUPABASE_SERVICE_ROLE_KEY"; exit 1; }
+
+          [ -n "$SUPABASE_DB_URL" ] || {
+            echo "Missing SUPABASE_DB_URL"
+            exit 1
+          }
+
+          [ -n "$NEXT_PUBLIC_SUPABASE_URL" ] || {
+            echo "Missing NEXT_PUBLIC_SUPABASE_URL"
+            exit 1
+          }
+
+          [ -n "$SUPABASE_SERVICE_ROLE_KEY" ] || {
+            echo "Missing SUPABASE_SERVICE_ROLE_KEY"
+            exit 1
+          }
 
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v1
@@ -51,10 +64,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
           STAMP=$(date '+%Y-%m-%d_%H-%M-%S')
           DAY=$(date '+%Y-%m-%d')
           ROOT="backup/$STAMP"
-          mkdir -p "$ROOT/database" "$ROOT/storage"
+
+          mkdir -p "$ROOT/database"
+          mkdir -p "$ROOT/storage"
+
           echo "stamp=$STAMP" >> "$GITHUB_OUTPUT"
           echo "day=$DAY" >> "$GITHUB_OUTPUT"
           echo "root=$ROOT" >> "$GITHUB_OUTPUT"
@@ -63,19 +80,33 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          supabase db dump --db-url "$SUPABASE_DB_URL" -f "${{ steps.meta.outputs.root }}/database/roles.sql" --role-only
+
+          supabase db dump \
+            --db-url "$SUPABASE_DB_URL" \
+            -f "${{ steps.meta.outputs.root }}/database/roles.sql" \
+            --role-only
 
       - name: Backup database schema
         shell: bash
         run: |
           set -euo pipefail
-          supabase db dump --db-url "$SUPABASE_DB_URL" -f "${{ steps.meta.outputs.root }}/database/schema.sql"
+
+          supabase db dump \
+            --db-url "$SUPABASE_DB_URL" \
+            -f "${{ steps.meta.outputs.root }}/database/schema.sql"
 
       - name: Backup database data
         shell: bash
         run: |
           set -euo pipefail
-          supabase db dump --db-url "$SUPABASE_DB_URL" -f "${{ steps.meta.outputs.root }}/database/data.sql" --data-only --use-copy -x "storage.buckets_vectors" -x "storage.vector_indexes"
+
+          supabase db dump \
+            --db-url "$SUPABASE_DB_URL" \
+            -f "${{ steps.meta.outputs.root }}/database/data.sql" \
+            --data-only \
+            --use-copy \
+            -x "storage.buckets_vectors" \
+            -x "storage.vector_indexes"
 
       - name: Backup Supabase Storage objects
         shell: bash
@@ -83,24 +114,32 @@ jobs:
           BACKUP_STORAGE_DIR: ${{ steps.meta.outputs.root }}/storage
         run: |
           set -euo pipefail
+
           node scripts/backup-storage.mjs
 
       - name: Create manifest and archive
         shell: bash
         run: |
           set -euo pipefail
+
           ROOT="${{ steps.meta.outputs.root }}"
           STAMP="${{ steps.meta.outputs.stamp }}"
-          cat > "$ROOT/backup-manifest.txt" <<EOF
-FPTU MKT Work Backup
-Timestamp: $STAMP
-Runner timezone: Asia/Ho_Chi_Minh
-Source repository: $GITHUB_REPOSITORY
-Commit: $GITHUB_SHA
-Includes: database roles, schema, data, Supabase Storage objects
-EOF
-          tar -czf "backup/fptu-work-$STAMP.tar.gz" -C backup "$STAMP"
-          sha256sum "backup/fptu-work-$STAMP.tar.gz" > "backup/fptu-work-$STAMP.sha256"
+
+          {
+            echo "FPTU MKT Work Backup"
+            echo "Timestamp: $STAMP"
+            echo "Runner timezone: Asia/Ho_Chi_Minh"
+            echo "Source repository: $GITHUB_REPOSITORY"
+            echo "Commit: $GITHUB_SHA"
+            echo "Includes: database roles, schema, data, Supabase Storage objects"
+          } > "$ROOT/backup-manifest.txt"
+
+          tar -czf "backup/fptu-work-$STAMP.tar.gz" \
+            -C backup \
+            "$STAMP"
+
+          sha256sum "backup/fptu-work-$STAMP.tar.gz" \
+            > "backup/fptu-work-$STAMP.sha256"
 
       - name: Upload backup to GitHub Artifacts (30 days)
         uses: actions/upload-artifact@v4
@@ -117,47 +156,135 @@ EOF
           GDRIVE_CONF: ${{ secrets.RCLONE_CONFIG }}
         run: |
           set -euo pipefail
+
           if [ -z "$GDRIVE_CONF" ]; then
             echo "Google Drive secret not provided, skipping upload."
             exit 0
           fi
 
           echo "Installing rclone binary..."
-          curl -fsSL https://downloads.rclone.org/rclone-current-linux-amd64.zip -o /tmp/rclone.zip
-          unzip -qo /tmp/rclone.zip -d /tmp/rclone-dir
-          sudo mv /tmp/rclone-dir/*/rclone /usr/local/bin/rclone
-          sudo chmod +x /usr/local/bin/rclone
+
+          curl -fsSL \
+            https://downloads.rclone.org/rclone-current-linux-amd64.zip \
+            -o /tmp/rclone.zip
+
+          rm -rf /tmp/rclone-dir
+          mkdir -p /tmp/rclone-dir
+
+          unzip -qo \
+            /tmp/rclone.zip \
+            -d /tmp/rclone-dir
+
+          RCLONE_BIN=$(find /tmp/rclone-dir -type f -name rclone | head -n 1)
+
+          if [ -z "$RCLONE_BIN" ]; then
+            echo "Unable to find rclone binary after extraction."
+            exit 1
+          fi
+
+          sudo install \
+            -m 0755 \
+            "$RCLONE_BIN" \
+            /usr/local/bin/rclone
+
           rclone version
 
           CONF_DIR="$HOME/.config/rclone"
+          CONF_FILE="$CONF_DIR/rclone.conf"
+
           mkdir -p "$CONF_DIR"
-          echo "$GDRIVE_CONF" > "$CONF_DIR/rclone.conf"
-          if ! grep -q '\[gdrive\]' "$CONF_DIR/rclone.conf"; then
-            printf '[gdrive]\ntype = drive\nscope = drive\ntoken = %s\n' "$GDRIVE_CONF" > "$CONF_DIR/rclone.conf"
+
+          printf '%s\n' "$GDRIVE_CONF" > "$CONF_FILE"
+
+          if ! grep -q '^\[gdrive\]$' "$CONF_FILE"; then
+            echo "RCLONE_CONFIG does not contain a [gdrive] remote."
+            echo "Expected the full contents of rclone.conf in the GitHub secret RCLONE_CONFIG."
+            exit 1
           fi
-          chmod 600 "$CONF_DIR/rclone.conf"
+
+          chmod 600 "$CONF_FILE"
 
           echo "Available remotes:"
-          rclone --config "$CONF_DIR/rclone.conf" listremotes
+          rclone \
+            --config "$CONF_FILE" \
+            listremotes
+
+          if ! rclone \
+            --config "$CONF_FILE" \
+            listremotes \
+            | grep -qx 'gdrive:'; then
+            echo "Remote gdrive: was not found."
+            exit 1
+          fi
 
           STAMP="${{ steps.meta.outputs.stamp }}"
           DAY="${{ steps.meta.outputs.day }}"
           DEST="$BACKUP_REMOTE/$DAY"
 
+          echo "Testing Google Drive connection..."
+
+          rclone \
+            --config "$CONF_FILE" \
+            lsd gdrive: \
+            --max-depth 1 \
+            >/dev/null
+
           echo "Uploading to Google Drive: $DEST"
-          rclone --config "$CONF_DIR/rclone.conf" copy "backup/fptu-work-$STAMP.tar.gz" "$DEST" --checksum --transfers 2 --checkers 4
-          rclone --config "$CONF_DIR/rclone.conf" copy "backup/fptu-work-$STAMP.sha256" "$DEST" --checksum
-          echo "Uploaded to $DEST successfully!"
+
+          rclone \
+            --config "$CONF_FILE" \
+            copy \
+            "backup/fptu-work-$STAMP.tar.gz" \
+            "$DEST" \
+            --checksum \
+            --transfers 2 \
+            --checkers 4
+
+          rclone \
+            --config "$CONF_FILE" \
+            copy \
+            "backup/fptu-work-$STAMP.sha256" \
+            "$DEST" \
+            --checksum
 
           echo "Verifying upload..."
-          rclone --config "$CONF_DIR/rclone.conf" lsf "$DEST" | grep -F "fptu-work-$STAMP.tar.gz" || true
-          rclone --config "$CONF_DIR/rclone.conf" lsf "$DEST" | grep -F "fptu-work-$STAMP.sha256" || true
+
+          if ! rclone \
+            --config "$CONF_FILE" \
+            lsf "$DEST" \
+            | grep -Fxq "fptu-work-$STAMP.tar.gz"; then
+            echo "Backup archive was not found on Google Drive after upload."
+            exit 1
+          fi
+
+          if ! rclone \
+            --config "$CONF_FILE" \
+            lsf "$DEST" \
+            | grep -Fxq "fptu-work-$STAMP.sha256"; then
+            echo "Checksum file was not found on Google Drive after upload."
+            exit 1
+          fi
+
+          echo "Google Drive upload verified successfully."
 
           echo "Retention cleanup - keeping 30 days..."
-          rclone --config "$CONF_DIR/rclone.conf" delete "$BACKUP_REMOTE" --min-age 30d --include '*.tar.gz' --include '*.sha256' || true
-          rclone --config "$CONF_DIR/rclone.conf" rmdirs "$BACKUP_REMOTE" --leave-root || true
+
+          rclone \
+            --config "$CONF_FILE" \
+            delete "$BACKUP_REMOTE" \
+            --min-age 30d \
+            --include '*.tar.gz' \
+            --include '*.sha256'
+
+          rclone \
+            --config "$CONF_FILE" \
+            rmdirs "$BACKUP_REMOTE" \
+            --leave-root \
+            || true
 
       - name: Cleanup runner
         if: always()
         shell: bash
-        run: rm -rf backup "$HOME/.config/rclone/rclone.conf"
+        run: |
+          rm -rf backup
+          rm -f "$HOME/.config/rclone/rclone.conf"
