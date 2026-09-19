@@ -52,9 +52,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsSL https://rclone.org/install.sh | sudo bash
+          if ! command -v rclone &> /dev/null; then
+            curl -fsSL https://rclone.org/install.sh | sudo bash || true
+          fi
+          rclone version
           mkdir -p "$HOME/.config/rclone"
-          printf '%s' "$RCLONE_CONFIG" > "$HOME/.config/rclone/rclone.conf"
+          printf '%s\n' "$RCLONE_CONFIG" > "$HOME/.config/rclone/rclone.conf"
           chmod 600 "$HOME/.config/rclone/rclone.conf"
           rclone listremotes
 
@@ -113,6 +116,15 @@ jobs:
           EOF
           tar -czf "backup/fptu-work-$STAMP.tar.gz" -C backup "$STAMP"
           sha256sum "backup/fptu-work-$STAMP.tar.gz" > "backup/fptu-work-$STAMP.sha256"
+
+      - name: Upload backup to GitHub Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: fptu-work-${{ steps.meta.outputs.stamp }}
+          path: |
+            backup/fptu-work-*.tar.gz
+            backup/fptu-work-*.sha256
+          retention-days: 30
 
       - name: Upload backup to Google Drive
         shell: bash
