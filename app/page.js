@@ -2974,6 +2974,46 @@ export default function Home(){
       .subtaskRow{width:100%;display:flex;align-items:center;gap:10px;border:1px solid #e5e7eb;border-radius:12px;background:#fff;padding:10px 12px;cursor:pointer}
       .subtaskRow:hover{background:#f8fafc}
       .subtaskRow small{display:block;color:#64748b;margin-top:3px;white-space:normal}
+
+      /* v18.15.1 - Task list visual polish */
+      .mobileTaskMeta{display:none}
+      .taskPanel{overflow:hidden}
+      .taskToolbar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 16px;border-bottom:1px solid #edf0f3;background:#fff}
+      .taskToolbar>input{width:min(360px,38vw);min-height:42px;border:1px solid #dbe3ec;border-radius:12px;padding:0 14px;background:#fff}
+      .taskToolbar .chips{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+      .taskToolbar .chips button{min-height:40px;border-radius:12px;padding:8px 14px;white-space:nowrap}
+      .taskHeader,.taskRow{display:grid;grid-template-columns:42px minmax(300px,1.7fr) minmax(230px,1fr) 140px 120px 120px;column-gap:14px;align-items:center}
+      .taskHeader{padding:10px 16px;background:#f8fafc;border-bottom:1px solid #e8edf3;color:#7b8798;font-size:12px;font-weight:800}
+      .taskRow{padding:12px 16px;border-bottom:1px solid #edf0f3;min-height:72px;background:#fff}
+      .taskRow:hover{background:#fbfdff}
+      .taskTitle{min-width:0;text-align:left;display:block}
+      .taskTitle b{display:block;font-size:15px;line-height:1.35;color:#111827;white-space:normal;overflow-wrap:anywhere}
+      .taskTitle small{display:block;margin-top:4px;color:#94a3b8}
+      .taskRow input[type=date],.taskRow select{width:100%;min-width:0;min-height:40px;border:1px solid #dbe3ec;border-radius:10px;background:#fff;padding:7px 9px}
+      .taskRow .multiMemberPicker,.taskRow .memberPicker{min-width:0}
+
+      /* v18.15.1 - Executive task detail list */
+      .execDetailHeader{display:flex;justify-content:space-between;align-items:center;gap:14px;margin-bottom:14px}
+      .execDetailHeader h3{margin:0;font-size:22px;line-height:1.25;color:#0f172a}
+      .execDetailClose{min-width:72px;min-height:40px;border-radius:10px}
+      .execDetailList{display:grid;gap:10px}
+      .execDetailRow{width:100%;display:grid;grid-template-columns:minmax(280px,1.7fr) minmax(170px,.9fr) minmax(160px,.8fr) 130px 110px;gap:16px;align-items:center;text-align:left;border:1px solid #e7edf4;border-radius:14px;background:#fff;padding:14px 16px;cursor:pointer;transition:.15s ease}
+      .execDetailRow:hover{border-color:#cbdcf1;box-shadow:0 6px 20px rgba(15,23,42,.06)}
+      .execDetailMain{min-width:0}
+      .execDetailMain b{display:block;font-size:15px;line-height:1.35;color:#0f172a;white-space:normal;overflow-wrap:anywhere}
+      .execDetailMain small,.execDetailCell small{display:block;margin-top:3px;color:#94a3b8;line-height:1.35}
+      .execDetailCell{min-width:0;color:#334155}
+      .execDetailDue{color:#dc2626;font-weight:800}
+      .execDetailBadge{display:inline-flex;align-items:center;justify-content:center;min-height:34px;border-radius:999px;padding:6px 10px;font-size:12px;font-weight:800;white-space:nowrap}
+      .execDetailBadge.high{background:#fff1f2;color:#be123c}
+      .execDetailBadge.medium{background:#fff7ed;color:#c2410c}
+      .execDetailBadge.low{background:#eff6ff;color:#1d4ed8}
+      .execDetailBadge.overdue{background:#fee2e2;color:#b91c1c}
+      @media (max-width: 1080px) and (min-width: 761px){
+        .taskHeader,.taskRow{grid-template-columns:38px minmax(240px,1.5fr) minmax(200px,1fr) 130px 105px 105px;column-gap:10px}
+        .execDetailRow{grid-template-columns:minmax(240px,1.5fr) minmax(150px,.9fr) 140px 110px}
+        .execDetailRow .execDetailPriority{display:none}
+      }
       @media (max-width: 760px){
         .teamListPanel{overflow-x:auto!important;-webkit-overflow-scrolling:touch!important}
         .teamListHeader{display:none!important}
@@ -3059,6 +3099,19 @@ export default function Home(){
         .mobileTaskMeta{display:flex!important;flex-wrap:wrap!important;gap:6px!important;margin-top:8px!important}
         .mobileTaskMeta span{display:inline-flex!important;align-items:center!important;border:1px solid #e5e7eb!important;border-radius:999px!important;padding:4px 7px!important;font-size:12px!important;background:#fff!important}
         .taskRow>.taskTitle{padding-right:0!important}
+        .execDetailHeader{position:sticky!important;top:0!important;background:#fff!important;z-index:4!important;padding-bottom:10px!important;margin-bottom:8px!important}
+        .execDetailHeader h3{font-size:20px!important}
+        .execDetailClose{min-width:64px!important;min-height:44px!important}
+        .execDetailList{gap:9px!important}
+        .execDetailRow{grid-template-columns:1fr auto!important;gap:10px 12px!important;padding:13px!important;border-radius:14px!important}
+        .execDetailMain{grid-column:1/3!important}
+        .execDetailMain b{font-size:16px!important;line-height:1.35!important}
+        .execDetailProject{grid-column:1!important}
+        .execDetailAssignee{grid-column:1!important}
+        .execDetailDue{grid-column:2!important;grid-row:2/4!important;align-self:center!important;text-align:right!important;font-size:13px!important}
+        .execDetailPriority{display:none!important}
+        .execDetailStatus{grid-column:2!important;text-align:right!important}
+        .execBottomSheet{padding:14px!important}
 
         .drawer,.drawer.narrow{width:100%!important;max-width:none!important;height:100dvh!important;max-height:100dvh!important;border-radius:0!important;overflow:hidden!important}
         .drawerHead{padding:14px 16px!important;position:sticky!important;top:0!important;background:#fff!important;z-index:20!important}
@@ -7408,7 +7461,30 @@ function Reports({projects,members,teams,membership,onOpenTask,onOpenProject}){
         <div className="panel" style={{padding:16}}><h3 style={{marginTop:0}}>Team Workload</h3><div className="execWorkload" style={{display:'grid',gap:8}}>{people.slice(0,7).map(x=><article className="execPerson" key={x.m.user_id} style={{border:'1px solid #e5e7eb',borderRadius:14,padding:12,background:'#fff'}}><div style={{display:'flex',justifyContent:'space-between',gap:10}}><b>{x.m.profiles?.full_name||x.m.profiles?.email}</b><span style={{fontWeight:850,color:x.workload==='High'?'#dc2626':x.workload==='Low'?'#2563eb':'#15803d'}}>{x.workload}</span></div><small>{teamMap.get(x.m.team_id)?.name||x.m.teams?.name||''}</small><div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:6,marginTop:10,textAlign:'center'}}><div><b>{x.active}</b><small style={{display:'block'}}>Active</small></div><div><b style={{color:x.overdue?'#dc2626':undefined}}>{x.overdue}</b><small style={{display:'block'}}>Overdue</small></div><div><b>{x.review}</b><small style={{display:'block'}}>Review</small></div></div></article>)}</div></div></div>
       <div className="execGrid2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><div className="panel" style={{padding:16}}><h3 style={{marginTop:0}}>Executive Attention</h3>{alerts.length?alerts.map((a,i)=><button key={i} onClick={a.go} style={{width:'100%',display:'flex',justifyContent:'space-between',gap:10,border:0,borderBottom:'1px solid #eef2f7',background:'transparent',padding:'12px 0',textAlign:'left',cursor:'pointer'}}><span><b style={{marginRight:8}}>{i+1}.</b>{a.label}</span><span style={{fontWeight:800,color:a.sev==='High'?'#dc2626':'#d97706'}}>{a.sev}</span></button>):<div className="empty">Không có cảnh báo nổi bật trong khoảng thời gian này.</div>}</div><div className="panel" style={{padding:16}}><h3 style={{marginTop:0}}>Team Overview</h3>{(teams||[]).map(t=>{const list=base.filter(x=>(projectMap.get(x.project_id)?.team_id||x.project?.team_id)===t.id);return <div key={t.id} style={{display:'flex',justifyContent:'space-between',padding:'10px 0',borderBottom:'1px solid #eef2f7'}}><b>{t.name}</b><span>{list.filter(active).length} active · <b style={{color:list.filter(overdue).length?'#dc2626':undefined}}>{list.filter(overdue).length} overdue</b></span></div>})}</div></div>
       {mode==='management'&&<div className="panel" style={{marginTop:12,padding:16}}><h3 style={{marginTop:0}}>Management Drill-down</h3><div style={{display:'grid',gap:8}}>{base.slice(0,20).map(t=><button key={t.id} onClick={()=>onOpenTask?.(t)} className="memberRow" style={{width:'100%'}}><span><b>{t.title}</b><small>{t.project?.name||projectMap.get(t.project_id)?.name} · {LABEL[t.status]||t.status}</small></span><span style={{color:overdue(t)?'#dc2626':'#64748b',fontWeight:800}}>{t.due_at?fmtDate(t.due_at):'—'}</span></button>)}</div></div>}
-      {detail!=='all'&&<div className="execBottomSheet panel" style={{marginTop:12,padding:16}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}><h3 style={{margin:0}}>{detail==='overdue'?'Task quá hạn':detail==='review'?'Task chờ Review':'Task đến hạn hôm nay'}</h3><button className="secondary" onClick={()=>setDetail('all')}>Đóng</button></div>{showTasks.length?showTasks.map(t=><button key={t.id} onClick={()=>onOpenTask?.(t)} className="memberRow" style={{width:'100%'}}><span><b>{t.title}</b><small>{t.project?.name||projectMap.get(t.project_id)?.name}</small></span><span>{t.due_at?fmtDate(t.due_at):'—'}</span></button>):<div className="empty">Không có task phù hợp.</div>}</div>}
+      {detail!=='all'&&<div className="execBottomSheet panel" style={{marginTop:12,padding:16}}>
+        <div className="execDetailHeader">
+          <div>
+            <h3>{detail==='overdue'?'Task quá hạn':detail==='review'?'Task chờ Review':'Task đến hạn hôm nay'}</h3>
+            <small style={{color:'#64748b'}}>{showTasks.length} task trong bộ lọc hiện tại</small>
+          </div>
+          <button className="secondary execDetailClose" onClick={()=>setDetail('all')}>Đóng</button>
+        </div>
+        {showTasks.length?<div className="execDetailList">{showTasks.map(t=>{
+          const assignees=(t.task_assignees||[]).map(a=>a.profiles?.full_name||a.profiles?.email).filter(Boolean)
+          const assigneeText=assignees.join(', ')||t.profiles?.full_name||t.profiles?.email||'Chưa assign'
+          const projectName=t.project?.name||projectMap.get(t.project_id)?.name||'—'
+          const priority=String(t.priority||'medium').toLowerCase()
+          const overdueDays=t.due_at?Math.max(0,Math.ceil((now-new Date(t.due_at).getTime())/dayMs)):0
+          return <button key={t.id} onClick={()=>onOpenTask?.(t)} className="execDetailRow">
+            <span className="execDetailMain"><b>{t.title}</b><small>{t.code||'Task'}</small></span>
+            <span className="execDetailCell execDetailProject"><b>{projectName}</b><small>Project</small></span>
+            <span className="execDetailCell execDetailAssignee"><b>{assigneeText}</b><small>Người phụ trách</small></span>
+            <span className="execDetailCell execDetailDue"><b>{t.due_at?fmtDate(t.due_at):'—'}</b>{detail==='overdue'&&overdueDays>0?<small style={{color:'#ef4444'}}>Quá hạn {overdueDays} ngày</small>:null}</span>
+            <span className="execDetailPriority"><span className={`execDetailBadge ${priority}`}>{PRIORITY[priority]||priority}</span></span>
+            <span className="execDetailStatus"><span className={`execDetailBadge ${detail==='overdue'?'overdue':priority}`}>{detail==='overdue'?'Quá hạn':LABEL[t.status]||t.status}</span></span>
+          </button>
+        })}</div>:<div className="empty">Không có task phù hợp.</div>}
+      </div>}
     </>}
   </section>
 }
@@ -9314,6 +9390,11 @@ function InviteDrawer({
 
   async function create(){
 
+    if(form.role==='manager' && String(membership?.role||'').toLowerCase()!=='manager'){
+      setError('Chỉ Trưởng phòng / Manager mới được cấp quyền Manager khi mời thành viên.')
+      return
+    }
+
     setSaving(true)
     setError('')
     setLink('')
@@ -9537,6 +9618,12 @@ function InviteDrawer({
             <option value="team_lead">
               Team Lead
             </option>
+
+            {String(membership?.role||'').toLowerCase()==='manager' &&
+              <option value="manager">
+                Trưởng phòng / Manager
+              </option>
+            }
 
           </select>
 
