@@ -53,24 +53,32 @@ jobs:
         run: |
           set -euo pipefail
           if ! command -v rclone &> /dev/null; then
-            echo "Installing rclone..."
-            sudo apt-get update -qq && sudo apt-get install -y rclone || {
-              curl -fsSL https://downloads.rclone.org/rclone-current-linux-amd64.zip -o /tmp/rclone.zip
-              unzip -qo /tmp/rclone.zip -d /tmp/rclone-dir
-              sudo cp /tmp/rclone-dir/*/rclone /usr/local/bin/
-              sudo chmod 755 /usr/local/bin/rclone
-            }
+            echo "Downloading rclone binary..."
+            curl -fsSL https://downloads.rclone.org/rclone-current-linux-amd64.zip -o /tmp/rclone.zip
+            unzip -qo /tmp/rclone.zip -d /tmp/rclone-dir
+            sudo mv /tmp/rclone-dir/*/rclone /usr/local/bin/rclone
+            sudo chmod +x /usr/local/bin/rclone
           fi
           rclone version
 
+      - name: Configure rclone
+        shell: bash
+        env:
+          CONFIG_CONTENT: ${{ secrets.RCLONE_CONFIG }}
+        run: |
+          set -euo pipefail
           mkdir -p "$HOME/.config/rclone"
-          if [[ "$RCLONE_CONFIG" == *"[gdrive]"* ]]; then
-            printf '%s\n' "$RCLONE_CONFIG" > "$HOME/.config/rclone/rclone.conf"
-          else
-            printf '[gdrive]\ntype = drive\nscope = drive\ntoken = %s\n' "$RCLONE_CONFIG" > "$HOME/.config/rclone/rclone.conf"
+          echo "$CONFIG_CONTENT" > "$HOME/.config/rclone/rclone.conf"
+          if ! grep -q '\[gdrive\]' "$HOME/.config/rclone/rclone.conf"; then
+            printf '[gdrive]\ntype = drive\nscope = drive\ntoken = %s\n' "$CONFIG_CONTENT" > "$HOME/.config/rclone/rclone.conf"
           fi
           chmod 600 "$HOME/.config/rclone/rclone.conf"
-          echo "Available remotes:"
+
+      - name: Test Google Drive connection
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Listing remotes:"
           rclone listremotes
 
       - name: Prepare backup folder
