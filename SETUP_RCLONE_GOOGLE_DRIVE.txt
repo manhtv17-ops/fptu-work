@@ -1,0 +1,36 @@
+SETUP GOOGLE DRIVE BANG RCLONE - KHONG CAN DANG KY DICH VU TRA PHI
+================================================================
+
+Muc dich: dung chinh tai khoan Google Drive hien tai.
+
+1. Cai rclone tren may Windows:
+   https://rclone.org/downloads/
+
+2. Mo Command Prompt, chay:
+   rclone config
+
+3. Chon:
+   n = New remote
+   name = gdrive
+   Storage = drive (Google Drive)
+
+4. OAuth Client ID / Secret:
+   Co the de trong neu rclone cho phep su dung client mac dinh.
+   Sau do chon scope cho phep upload/file access theo nhu cau.
+
+5. Chon cau hinh trinh duyet va dang nhap bang tai khoan Google Drive anh dang dung.
+
+6. Test:
+   rclone lsd gdrive:
+
+7. Tim file cau hinh:
+   rclone config file
+
+8. Mo file rclone.conf va copy TOAN BO NOI DUNG.
+   Vao GitHub repo > Settings > Secrets and variables > Actions > New repository secret.
+   Name: RCLONE_CONFIG
+   Value: noi dung rclone.conf
+
+9. KHONG gui noi dung RCLONE_CONFIG qua chat, email cong khai hoac commit vao GitHub.
+
+10. Sau khi setup xong, test workflow bang nut Run workflow trong GitHub Actions.

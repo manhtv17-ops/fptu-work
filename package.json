@@ -1,6 +1,6 @@
 {
   "name": "fptu-work",
-  "version": "18.1.0",
+  "version": "18.14.1",
   "private": true,
   "scripts": {
     "dev": "next dev",
