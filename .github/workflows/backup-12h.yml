@@ -18,7 +18,6 @@ jobs:
       SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      RCLONE_CONFIG: ${{ secrets.RCLONE_CONFIG }}
       BACKUP_REMOTE: gdrive:FPTU MKT Work Backup
 
     steps:
@@ -115,47 +114,48 @@ EOF
       - name: Setup and upload to Google Drive
         shell: bash
         env:
-          CONFIG_CONTENT: ${{ secrets.RCLONE_CONFIG }}
+          GDRIVE_CONF: ${{ secrets.RCLONE_CONFIG }}
         run: |
           set -euo pipefail
-          if [ -z "$CONFIG_CONTENT" ]; then
-            echo "RCLONE_CONFIG not provided, skipping Google Drive upload."
+          if [ -z "$GDRIVE_CONF" ]; then
+            echo "Google Drive secret not provided, skipping upload."
             exit 0
           fi
 
-          echo "Installing rclone..."
+          echo "Installing rclone binary..."
           curl -fsSL https://downloads.rclone.org/rclone-current-linux-amd64.zip -o /tmp/rclone.zip
           unzip -qo /tmp/rclone.zip -d /tmp/rclone-dir
           sudo mv /tmp/rclone-dir/*/rclone /usr/local/bin/rclone
           sudo chmod +x /usr/local/bin/rclone
           rclone version
 
-          mkdir -p "$HOME/.config/rclone"
-          echo "$CONFIG_CONTENT" > "$HOME/.config/rclone/rclone.conf"
-          if ! grep -q '\[gdrive\]' "$HOME/.config/rclone/rclone.conf"; then
-            printf '[gdrive]\ntype = drive\nscope = drive\ntoken = %s\n' "$CONFIG_CONTENT" > "$HOME/.config/rclone/rclone.conf"
+          CONF_DIR="$HOME/.config/rclone"
+          mkdir -p "$CONF_DIR"
+          echo "$GDRIVE_CONF" > "$CONF_DIR/rclone.conf"
+          if ! grep -q '\[gdrive\]' "$CONF_DIR/rclone.conf"; then
+            printf '[gdrive]\ntype = drive\nscope = drive\ntoken = %s\n' "$GDRIVE_CONF" > "$CONF_DIR/rclone.conf"
           fi
-          chmod 600 "$HOME/.config/rclone/rclone.conf"
+          chmod 600 "$CONF_DIR/rclone.conf"
 
-          echo "Testing rclone remotes:"
-          rclone listremotes || true
+          echo "Available remotes:"
+          rclone --config "$CONF_DIR/rclone.conf" listremotes
 
           STAMP="${{ steps.meta.outputs.stamp }}"
           DAY="${{ steps.meta.outputs.day }}"
           DEST="$BACKUP_REMOTE/$DAY"
 
           echo "Uploading to Google Drive: $DEST"
-          rclone copy "backup/fptu-work-$STAMP.tar.gz" "$DEST" --checksum --transfers 2 --checkers 4
-          rclone copy "backup/fptu-work-$STAMP.sha256" "$DEST" --checksum
+          rclone --config "$CONF_DIR/rclone.conf" copy "backup/fptu-work-$STAMP.tar.gz" "$DEST" --checksum --transfers 2 --checkers 4
+          rclone --config "$CONF_DIR/rclone.conf" copy "backup/fptu-work-$STAMP.sha256" "$DEST" --checksum
           echo "Uploaded to $DEST successfully!"
 
           echo "Verifying upload..."
-          rclone lsf "$DEST" | grep -F "fptu-work-$STAMP.tar.gz" || true
-          rclone lsf "$DEST" | grep -F "fptu-work-$STAMP.sha256" || true
+          rclone --config "$CONF_DIR/rclone.conf" lsf "$DEST" | grep -F "fptu-work-$STAMP.tar.gz" || true
+          rclone --config "$CONF_DIR/rclone.conf" lsf "$DEST" | grep -F "fptu-work-$STAMP.sha256" || true
 
           echo "Retention cleanup - keeping 30 days..."
-          rclone delete "$BACKUP_REMOTE" --min-age 30d --include '*.tar.gz' --include '*.sha256' || true
-          rclone rmdirs "$BACKUP_REMOTE" --leave-root || true
+          rclone --config "$CONF_DIR/rclone.conf" delete "$BACKUP_REMOTE" --min-age 30d --include '*.tar.gz' --include '*.sha256' || true
+          rclone --config "$CONF_DIR/rclone.conf" rmdirs "$BACKUP_REMOTE" --leave-root || true
 
       - name: Cleanup runner
         if: always()
