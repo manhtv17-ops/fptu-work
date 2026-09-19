@@ -67,12 +67,7 @@ jobs:
           if [[ "$RCLONE_CONFIG" == *"[gdrive]"* ]]; then
             printf '%s\n' "$RCLONE_CONFIG" > "$HOME/.config/rclone/rclone.conf"
           else
-            cat <<EOF > "$HOME/.config/rclone/rclone.conf"
-[gdrive]
-type = drive
-scope = drive
-token = $RCLONE_CONFIG
-EOF
+            printf '[gdrive]\ntype = drive\nscope = drive\ntoken = %s\n' "$RCLONE_CONFIG" > "$HOME/.config/rclone/rclone.conf"
           fi
           chmod 600 "$HOME/.config/rclone/rclone.conf"
           echo "Available remotes:"
