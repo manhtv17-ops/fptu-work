@@ -53,12 +53,29 @@ jobs:
         run: |
           set -euo pipefail
           if ! command -v rclone &> /dev/null; then
-            curl -fsSL https://rclone.org/install.sh | sudo bash || true
+            echo "Installing rclone..."
+            sudo apt-get update -qq && sudo apt-get install -y rclone || {
+              curl -fsSL https://downloads.rclone.org/rclone-current-linux-amd64.zip -o /tmp/rclone.zip
+              unzip -qo /tmp/rclone.zip -d /tmp/rclone-dir
+              sudo cp /tmp/rclone-dir/*/rclone /usr/local/bin/
+              sudo chmod 755 /usr/local/bin/rclone
+            }
           fi
           rclone version
+
           mkdir -p "$HOME/.config/rclone"
-          printf '%s\n' "$RCLONE_CONFIG" > "$HOME/.config/rclone/rclone.conf"
+          if [[ "$RCLONE_CONFIG" == *"[gdrive]"* ]]; then
+            printf '%s\n' "$RCLONE_CONFIG" > "$HOME/.config/rclone/rclone.conf"
+          else
+            cat <<EOF > "$HOME/.config/rclone/rclone.conf"
+[gdrive]
+type = drive
+scope = drive
+token = $RCLONE_CONFIG
+EOF
+          fi
           chmod 600 "$HOME/.config/rclone/rclone.conf"
+          echo "Available remotes:"
           rclone listremotes
 
       - name: Prepare backup folder
