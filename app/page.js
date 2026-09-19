@@ -263,6 +263,15 @@ export default function Home(){
     return window.localStorage.getItem('fptu-work-ui-lang')||'vi'
   })
   const deepLinkHandledRef=useRef(false)
+  const managerLandingAppliedRef=useRef(false)
+
+  useEffect(()=>{
+    if(!membership?.id || managerLandingAppliedRef.current) return
+    const params=new URLSearchParams(typeof window!=='undefined'?window.location.search:'')
+    if(params.get('project')||params.get('project_id')||params.get('task')||params.get('task_id')||params.get('invite')) return
+    managerLandingAppliedRef.current=true
+    if(String(membership.role||'').toLowerCase()==='manager') setView('reports')
+  },[membership?.id,membership?.role])
 
   useEffect(()=>{
     if(typeof window==='undefined') return
@@ -7338,182 +7347,71 @@ function Members({
 // REPORTS
 // =====================================================
 
-function Reports({
-  projects,
-  members,
-  teams,
-  membership,
-  onOpenTask,
-  onOpenProject
-}){
+function Reports({projects,members,teams,membership,onOpenTask,onOpenProject}){
+  const isManager=String(membership?.role||'').toLowerCase()==='manager'
   const [rows,setRows]=useState([])
   const [loading,setLoading]=useState(true)
-  const [tab,setTab]=useState('overview')
-  const [period,setPeriod]=useState('all')
-  const [projectFilter,setProjectFilter]=useState('all')
+  const [mode,setMode]=useState(isManager?'executive':'management')
+  const [period,setPeriod]=useState(()=>typeof window!=='undefined'?(localStorage.getItem('fptu-report-period')||'week'):'week')
+  const [customFrom,setCustomFrom]=useState('')
+  const [customTo,setCustomTo]=useState('')
   const [teamFilter,setTeamFilter]=useState('all')
-  const [memberFilter,setMemberFilter]=useState('all')
+  const [projectFilter,setProjectFilter]=useState('all')
+  const [leadFilter,setLeadFilter]=useState('all')
   const [statusFilter,setStatusFilter]=useState('all')
-  const [quick,setQuick]=useState('all')
-  const [searchText,setSearchText]=useState('')
+  const [detail,setDetail]=useState('all')
 
-  useEffect(()=>{
-    let cancelled=false
-    async function load(){
-      const ids=(projects||[]).map(p=>p.id)
-      if(!ids.length){setRows([]);setLoading(false);return}
-      setLoading(true)
-      let all=[]
-      let from=0
-      const size=1000
-      while(true){
-        const {data,error}=await supabase
-          .from('tasks')
-          .select('*, profiles!tasks_assignee_id_fkey(full_name,avatar_url,email), task_assignees(user_id, profiles(*)), project:projects(id,name,code,team_id,lead_id,due_at,status,updated_at)')
-          .in('project_id',ids)
-          .is('archived_at',null)
-          .order('created_at',{ascending:false})
-          .range(from,from+size-1)
-        if(error){console.error(error);break}
-        all=all.concat(data||[])
-        if(!data || data.length<size) break
-        from+=size
-        if(from>=10000) break
-      }
-      if(!cancelled){setRows(all);setLoading(false)}
-    }
-    load()
-    return ()=>{cancelled=true}
-  },[JSON.stringify((projects||[]).map(p=>p.id))])
+  useEffect(()=>{if(typeof window!=='undefined')localStorage.setItem('fptu-report-period',period)},[period])
+  useEffect(()=>{let dead=false;(async()=>{const ids=(projects||[]).map(p=>p.id);if(!ids.length){setRows([]);setLoading(false);return}setLoading(true);let all=[],from=0;while(true){const {data,error}=await supabase.from('tasks').select('*, profiles!tasks_assignee_id_fkey(full_name,avatar_url,email), task_assignees(user_id, profiles(*)), project:projects(id,name,code,team_id,lead_id,due_at,status,updated_at)').in('project_id',ids).is('archived_at',null).order('created_at',{ascending:false}).range(from,from+999);if(error){console.error(error);break}all=all.concat(data||[]);if(!data||data.length<1000)break;from+=1000;if(from>=10000)break}if(!dead){setRows(all);setLoading(false)}})();return()=>{dead=true}},[JSON.stringify((projects||[]).map(p=>p.id))])
 
-  const now=Date.now()
-  const dayMs=86400000
-  const isDone=t=>t.status==='done'
-  const isActive=t=>['todo','in_progress','review'].includes(t.status)
-  const isOverdue=t=>!!t.due_at && !isDone(t) && new Date(t.due_at).getTime()<now
-  const isHigh=t=>['urgent','high'].includes(t.priority) && !isDone(t)
-  const isOnTime=t=>isDone(t)&&t.due_at&&t.completed_at&&new Date(t.completed_at).getTime()<=new Date(t.due_at).getTime()
-  const isLateDone=t=>isDone(t)&&t.due_at&&t.completed_at&&new Date(t.completed_at).getTime()>new Date(t.due_at).getTime()
-  const periodDays={d7:7,d30:30,d90:90}[period]
-  const cutoff=periodDays?now-periodDays*dayMs:null
-  const inPeriod=t=>!cutoff || !isDone(t) || new Date(t.completed_at||t.updated_at||t.created_at||0).getTime()>=cutoff
+  const now=new Date(), nowMs=now.getTime(), dayMs=86400000
+  const startOfDay=d=>new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime()
+  const endOfDay=d=>new Date(d.getFullYear(),d.getMonth(),d.getDate(),23,59,59,999).getTime()
+  function range(){let s=null,e=endOfDay(now);if(period==='today')s=startOfDay(now);if(period==='week'){const d=new Date(now);const delta=(d.getDay()+6)%7;d.setDate(d.getDate()-delta);s=startOfDay(d)}if(period==='month')s=new Date(now.getFullYear(),now.getMonth(),1).getTime();if(period==='d7')s=nowMs-6*dayMs;if(period==='d30')s=nowMs-29*dayMs;if(period==='custom'){s=customFrom?startOfDay(new Date(customFrom+'T00:00:00')):null;e=customTo?endOfDay(new Date(customTo+'T00:00:00')):e}return [s,e]}
+  const [rangeStart,rangeEnd]=range()
+  const inRange=t=>{if(!rangeStart)return true;const vals=[t.updated_at,t.created_at,t.completed_at,t.due_at].filter(Boolean).map(x=>new Date(x).getTime());return vals.some(v=>v>=rangeStart&&v<=rangeEnd)}
+  const done=t=>t.status==='done', active=t=>['todo','in_progress','review'].includes(t.status), overdue=t=>!!t.due_at&&!done(t)&&new Date(t.due_at).getTime()<nowMs
+  const projectMap=new Map((projects||[]).map(p=>[p.id,p])); const memberMap=new Map((members||[]).map(m=>[m.user_id,m])); const teamMap=new Map((teams||[]).map(t=>[t.id,t]))
+  const base=rows.filter(inRange).filter(t=>teamFilter==='all'||(projectMap.get(t.project_id)?.team_id||t.project?.team_id)===teamFilter).filter(t=>projectFilter==='all'||t.project_id===projectFilter).filter(t=>statusFilter==='all'||t.status===statusFilter).filter(t=>leadFilter==='all'||(projectMap.get(t.project_id)?.lead_id||t.project?.lead_id)===leadFilter)
+  const projectsScoped=(projects||[]).filter(p=>teamFilter==='all'||p.team_id===teamFilter).filter(p=>projectFilter==='all'||p.id===projectFilter).filter(p=>leadFilter==='all'||p.lead_id===leadFilter)
+  const metric=p=>{const list=base.filter(t=>t.project_id===p.id),total=list.length,dd=list.filter(done).length,od=list.filter(overdue).length,rv=list.filter(t=>t.status==='review').length,progress=total?Math.round(dd/total*100):0;let health='Healthy';if(od>=2||(total&&od/total>=.2)||(p.due_at&&new Date(p.due_at).getTime()-nowMs<7*dayMs&&progress<70))health='At Risk';else if(od||rv>=3)health='Watch';return {p,list,total,done:dd,overdue:od,review:rv,progress,health}}
+  const pm=projectsScoped.map(metric).filter(x=>x.total||period==='all').sort((a,b)=>b.overdue-a.overdue||a.progress-b.progress)
+  const health={Healthy:pm.filter(x=>x.health==='Healthy').length,Watch:pm.filter(x=>x.health==='Watch').length,'At Risk':pm.filter(x=>x.health==='At Risk').length}
+  const assignees=t=>[t.assignee_id,...(t.task_assignees||[]).map(a=>a.user_id)].filter(Boolean)
+  const people=(members||[]).map(m=>{const list=base.filter(t=>assignees(t).includes(m.user_id)),act=list.filter(active),od=list.filter(overdue).length,rv=list.filter(t=>t.status==='review').length,high=act.filter(t=>['high','urgent'].includes(t.priority)).length;const score=act.length+od*3+rv+high*2;return {m,active:act.length,overdue:od,review:rv,total:list.length,score,workload:score>=15?'High':score<=3?'Low':'Balanced'}}).filter(x=>x.total).sort((a,b)=>b.score-a.score)
+  const activeMembers=people.filter(x=>x.active>0).length
+  const overall={projects:pm.length,active:base.filter(active).length,overdue:base.filter(overdue).length,risk:health['At Risk'],review:base.filter(t=>t.status==='review').length,members:activeMembers}
+  const dueToday=base.filter(t=>t.due_at&&!done(t)&&startOfDay(new Date(t.due_at))===startOfDay(now)).length
+  const due3=base.filter(t=>t.due_at&&!done(t)&&new Date(t.due_at).getTime()>nowMs&&new Date(t.due_at).getTime()<=nowMs+3*dayMs).length
+  const due7=base.filter(t=>t.due_at&&!done(t)&&new Date(t.due_at).getTime()>nowMs&&new Date(t.due_at).getTime()<=nowMs+7*dayMs).length
+  const taskFlow=[['To-do',base.filter(t=>t.status==='todo').length,'#94a3b8'],['In Progress',base.filter(t=>t.status==='in_progress').length,'#3b82f6'],['Review',overall.review,'#f59e0b'],['Done',base.filter(done).length,'#22c55e']]
+  const alerts=[...pm.filter(x=>x.overdue>0).map(x=>({label:`${x.p.name} có ${x.overdue} task quá hạn`,sev:x.health==='At Risk'?'High':'Medium',go:()=>onOpenProject?.(x.p)})),...(overall.review>0?[{label:`${overall.review} task đang chờ Review`,sev:'Medium',go:()=>setDetail('review')}]:[])].slice(0,5)
+  const maxFlow=Math.max(1,...taskFlow.map(x=>x[1]))
+  const donutTotal=Math.max(1,pm.length), healthyPct=health.Healthy/donutTotal*100, watchPct=health.Watch/donutTotal*100, riskPct=health['At Risk']/donutTotal*100
+  const showTasks=detail==='overdue'?base.filter(overdue):detail==='review'?base.filter(t=>t.status==='review'):detail==='today'?base.filter(t=>t.due_at&&!done(t)&&startOfDay(new Date(t.due_at))===startOfDay(now)):[]
+  const resetFilters=()=>{setPeriod('week');setCustomFrom('');setCustomTo('');setTeamFilter('all');setProjectFilter('all');setLeadFilter('all');setStatusFilter('all');setDetail('all')}
 
-  const projectMap=new Map((projects||[]).map(p=>[p.id,p]))
-  const memberMap=new Map((members||[]).map(m=>[m.user_id,m]))
-  const taskHasMember=(t,userId)=>t.assignee_id===userId||(t.task_assignees||[]).some(a=>a.user_id===userId)
-  const q=searchText.trim().toLowerCase()
-
-  const filtered=rows
-    .filter(inPeriod)
-    .filter(t=>projectFilter==='all'||t.project_id===projectFilter)
-    .filter(t=>memberFilter==='all'||taskHasMember(t,memberFilter))
-    .filter(t=>statusFilter==='all'||t.status===statusFilter)
-    .filter(t=>teamFilter==='all'||(projectMap.get(t.project_id)?.team_id||t.project?.team_id)===teamFilter)
-    .filter(t=>quick==='all'||(quick==='overdue'&&isOverdue(t))||(quick==='review'&&t.status==='review')||(quick==='priority'&&isHigh(t))||(quick==='unassigned'&&!t.assignee_id&&!(t.task_assignees||[]).length))
-    .filter(t=>!q||[t.title,t.code,t.project?.name,t.project?.code,t.profiles?.full_name,t.profiles?.email,...(t.task_assignees||[]).flatMap(a=>[a.profiles?.full_name,a.profiles?.email])].filter(Boolean).some(v=>String(v).toLowerCase().includes(q)))
-
-  function calcOnTime(list){
-    const measured=list.filter(t=>isOnTime(t)||isLateDone(t))
-    return measured.length?Math.round(measured.filter(isOnTime).length/measured.length*100):null
-  }
-
-  const overall={
-    projects:new Set(filtered.map(t=>t.project_id)).size,
-    tasks:filtered.length,
-    active:filtered.filter(isActive).length,
-    overdue:filtered.filter(isOverdue).length,
-    review:filtered.filter(t=>t.status==='review').length,
-    done:filtered.filter(isDone).length,
-    ontime:calcOnTime(filtered)
-  }
-
-  function pMetric(p){
-    const list=filtered.filter(t=>t.project_id===p.id)
-    const total=list.length, done=list.filter(isDone).length, overdue=list.filter(isOverdue).length, review=list.filter(t=>t.status==='review').length
-    const progress=total?Math.round(done/total*100):0
-    const due=p.due_at?new Date(p.due_at).getTime():null
-    const daysLeft=due?Math.ceil((due-now)/dayMs):null
-    let health='Healthy'
-    if(overdue>=2 || (total&&overdue/total>=.2) || (daysLeft!==null&&daysLeft<=7&&daysLeft>=0&&progress<70)) health='At risk'
-    else if(overdue>0 || review>=3 || (daysLeft!==null&&daysLeft<=7&&daysLeft>=0&&progress<85)) health='Watch'
-    return {p,list,total,done,active:list.filter(isActive).length,overdue,review,progress,ontime:calcOnTime(list),health,daysLeft}
-  }
-  const projectMetrics=(projects||[]).map(pMetric).filter(x=>projectFilter==='all'||x.p.id===projectFilter).sort((a,b)=>b.overdue-a.overdue||b.total-a.total)
-
-  function personMetric(m){
-    const list=filtered.filter(t=>taskHasMember(t,m.user_id))
-    const active=list.filter(isActive)
-    const activeProjects=new Set(active.map(t=>t.project_id)).size
-    const overdue=list.filter(isOverdue).length
-    const review=list.filter(t=>t.status==='review').length
-    const high=active.filter(isHigh).length
-    const inProgress=active.filter(t=>t.status==='in_progress').length
-    const score=Math.round((active.length + inProgress + high*2 + overdue*3 + activeProjects*1.5 + review*.5)*10)/10
-    const workload=score<=4?'Low':score<=10?'Balanced':score<=16?'High':'Overloaded'
-    return {m,list,total:list.length,active:active.length,projects:activeProjects,overdue,review,done:list.filter(isDone).length,ontime:calcOnTime(list),score,workload}
-  }
-  const peopleMetrics=(members||[]).map(personMetric).filter(x=>memberFilter==='all'||x.m.user_id===memberFilter).sort((a,b)=>b.score-a.score)
-
-  const atRisk=projectMetrics.filter(x=>x.health==='At risk')
-  const overloaded=peopleMetrics.filter(x=>x.workload==='Overloaded')
-  const underloaded=peopleMetrics.filter(x=>x.workload==='Low'&&x.m.status==='active')
-  const reviewLeaders=[...peopleMetrics].sort((a,b)=>b.review-a.review).filter(x=>x.review>0).slice(0,5)
-  const topOverdue=[...filtered].filter(isOverdue).sort((a,b)=>new Date(a.due_at)-new Date(b.due_at)).slice(0,20)
-
-  const tabBtn=(key,label)=><button type="button" onClick={()=>setTab(key)} style={{border:'1px solid #e5e7eb',background:tab===key?'#fff3e8':'#fff',color:tab===key?'#b45309':'#374151',borderRadius:999,padding:'8px 12px',fontWeight:800,cursor:'pointer'}}>{label}</button>
-  const workloadStyle=w=>({color:w==='Overloaded'?'#b91c1c':w==='High'?'#c2410c':w==='Balanced'?'#166534':'#2563eb',fontWeight:800})
-  const healthStyle=h=>({color:h==='At risk'?'#b91c1c':h==='Watch'?'#c2410c':'#166534',fontWeight:800})
-
-  function openProjectMetric(x){ onOpenProject?.(x.p) }
-  function openPerson(x){ setMemberFilter(x.m.user_id); setTab('overview') }
-
-  return <section className="page">
-    <div className="pageHead"><div><h1>Reports</h1><p>Smart Reports & Workload Intelligence — theo dõi Project, Task, workload và rủi ro theo quyền truy cập hiện tại.</p></div></div>
-
-    <div className="reportTabs" style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:14}}>{tabBtn('overview','Overview')}{tabBtn('projects','Projects')}{tabBtn('people','People')}{tabBtn('workload','Workload')}{tabBtn('insights','Insights')}</div>
-
-    <div className="reportFilters" style={{display:'grid',gridTemplateColumns:'150px 1fr 180px 180px 180px',gap:9,marginBottom:10}}>
-      <select value={period} onChange={e=>setPeriod(e.target.value)}><option value="all">Tất cả thời gian</option><option value="d7">7 ngày</option><option value="d30">30 ngày</option><option value="d90">90 ngày</option></select>
-      <input value={searchText} onChange={e=>setSearchText(e.target.value)} placeholder="Tìm task, project hoặc nhân sự..."/>
-      <select value={teamFilter} onChange={e=>setTeamFilter(e.target.value)}><option value="all">Tất cả Team</option>{(teams||[]).map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select>
-      <select value={projectFilter} onChange={e=>setProjectFilter(e.target.value)}><option value="all">Tất cả Project</option>{(projects||[]).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>
-      <select value={memberFilter} onChange={e=>setMemberFilter(e.target.value)}><option value="all">Tất cả Member</option>{(members||[]).map(m=><option key={m.user_id} value={m.user_id}>{m.profiles?.full_name||m.profiles?.email}</option>)}</select>
-    </div>
-    <div className="reportQuick" style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:16}}>
-      {[['all','Tất cả'],['overdue','Overdue'],['review','Chờ Review'],['priority','High/Urgent'],['unassigned','Chưa assign']].map(([k,l])=><button type="button" key={k} onClick={()=>setQuick(k)} style={{border:'1px solid #e5e7eb',background:quick===k?'#fff3e8':'#fff',borderRadius:999,padding:'7px 11px',fontWeight:700,cursor:'pointer'}}>{l}</button>)}
-      <select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} style={{width:160}}><option value="all">Mọi status</option>{STATUS.map(s=><option key={s} value={s}>{LABEL[s]||s}</option>)}</select><button type="button" className="secondary" onClick={()=>{setPeriod('all');setProjectFilter('all');setTeamFilter('all');setMemberFilter('all');setStatusFilter('all');setQuick('all');setSearchText('')}}>Xóa bộ lọc</button>
-    </div>
-
-    {loading?<div className="panel"><div className="empty">Đang tải dữ liệu báo cáo...</div></div>:<>
-      {tab==='overview'&&<>
-        <div className="statGrid reportStatGrid" style={{gridTemplateColumns:'repeat(7,minmax(120px,1fr))'}}>
-          <Stat label="Projects" value={overall.projects}/><Stat label="Tasks" value={overall.tasks}/><Stat label="Active" value={overall.active}/><Stat label="Overdue" value={overall.overdue}/><Stat label="Review" value={overall.review}/><Stat label="Done" value={overall.done}/><Stat label="On-time" value={overall.ontime===null?'—':overall.ontime+'%'}/>
-        </div>
-        <div className="reportTwoCol" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14,marginTop:14}}>
-          <div className="panel" style={{padding:16}}><h3 style={{marginTop:0}}>Project cần chú ý</h3>{atRisk.length?atRisk.slice(0,6).map(x=><button key={x.p.id} onClick={()=>openProjectMetric(x)} className="memberRow" style={{width:'100%'}}><span><b>{x.p.name}</b><small>{x.overdue} overdue · {x.progress}% hoàn thành</small></span><span style={healthStyle(x.health)}>{x.health}</span></button>):<div className="empty">Chưa có Project At risk.</div>}</div>
-          <div className="panel" style={{padding:16}}><h3 style={{marginTop:0}}>Workload cần cân bằng</h3>{[...overloaded,...underloaded].slice(0,6).map(x=><button key={x.m.user_id} onClick={()=>openPerson(x)} className="memberRow" style={{width:'100%'}}><span><b>{x.m.profiles?.full_name||x.m.profiles?.email}</b><small>{x.projects} Project · {x.active} task active · {x.overdue} overdue</small></span><span style={workloadStyle(x.workload)}>{x.workload}</span></button>)}</div>
-        </div>
-        <div className="panel" style={{marginTop:14}}><h3 style={{padding:'14px 16px 0'}}>Task cần can thiệp</h3>{topOverdue.length?topOverdue.map(t=><button key={t.id} className="memberRow" style={{width:'100%'}} onClick={()=>onOpenTask?.(t)}><span className={'statusBadge '+t.status}>{LABEL[t.status]||t.status}</span><span style={{minWidth:0}}><b>{t.title}</b><small>{t.project?.name||projectMap.get(t.project_id)?.name} · {t.profiles?.full_name||'Chưa assign'}</small></span><span style={{textAlign:'right',color:'#b91c1c',fontWeight:800}}>Trễ {Math.max(1,Math.ceil((now-new Date(t.due_at).getTime())/dayMs))} ngày</span></button>):<div className="empty">Không có task overdue trong bộ lọc hiện tại.</div>}</div>
-      </>}
-
-      {tab==='projects'&&<div className="panel reportTableWrap" style={{overflowX:'auto'}}><table style={{width:'100%',borderCollapse:'collapse',minWidth:900}}><thead><tr>{['Project','Tổng task','Active','Done','Review','Overdue','Progress','On-time','Health'].map(h=><th key={h} style={{textAlign:'left',padding:12,borderBottom:'1px solid #eceff3'}}>{h}</th>)}</tr></thead><tbody>{projectMetrics.map(x=><tr key={x.p.id} onClick={()=>openProjectMetric(x)} style={{cursor:'pointer'}}><td style={{padding:12,borderBottom:'1px solid #f0f2f4'}}><b>{x.p.name}</b><small style={{display:'block'}}>{x.p.code}</small></td><td>{x.total}</td><td>{x.active}</td><td>{x.done}</td><td>{x.review}</td><td style={{color:x.overdue?'#b91c1c':undefined,fontWeight:x.overdue?800:400}}>{x.overdue}</td><td>{x.progress}%</td><td>{x.ontime===null?'—':x.ontime+'%'}</td><td style={healthStyle(x.health)}>{x.health}</td></tr>)}</tbody></table></div>}
-
-      {tab==='people'&&<div className="panel reportTableWrap" style={{overflowX:'auto'}}><table style={{width:'100%',borderCollapse:'collapse',minWidth:950}}><thead><tr>{['Nhân sự','Project đang làm','Task active','Tổng task','Done','Overdue','Review','On-time','Workload'].map(h=><th key={h} style={{textAlign:'left',padding:12,borderBottom:'1px solid #eceff3'}}>{h}</th>)}</tr></thead><tbody>{peopleMetrics.map(x=><tr key={x.m.user_id} onClick={()=>openPerson(x)} style={{cursor:'pointer'}}><td style={{padding:12,borderBottom:'1px solid #f0f2f4'}}><b>{x.m.profiles?.full_name||x.m.profiles?.email}</b><small style={{display:'block'}}>{x.m.teams?.name||''}</small></td><td>{x.projects}</td><td>{x.active}</td><td>{x.total}</td><td>{x.done}</td><td style={{color:x.overdue?'#b91c1c':undefined,fontWeight:x.overdue?800:400}}>{x.overdue}</td><td>{x.review}</td><td>{x.ontime===null?'—':x.ontime+'%'}</td><td style={workloadStyle(x.workload)}>{x.workload} · {x.score}</td></tr>)}</tbody></table></div>}
-
-      {tab==='workload'&&<div className="reportWorkloadGrid" style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',gap:12}}>{peopleMetrics.map(x=><article className="projectCard" key={x.m.user_id} onClick={()=>openPerson(x)} style={{cursor:'pointer'}}><div style={{display:'flex',justifyContent:'space-between',gap:12}}><div><h3 style={{margin:'0 0 4px'}}>{x.m.profiles?.full_name||x.m.profiles?.email}</h3><small>{x.m.teams?.name||'Chưa gán Team'}</small></div><b style={workloadStyle(x.workload)}>{x.workload}</b></div><div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginTop:14}}><div><small>Project</small><b style={{display:'block',fontSize:20}}>{x.projects}</b></div><div><small>Active</small><b style={{display:'block',fontSize:20}}>{x.active}</b></div><div><small>Overdue</small><b style={{display:'block',fontSize:20,color:x.overdue?'#b91c1c':undefined}}>{x.overdue}</b></div></div><small style={{display:'block',marginTop:12}}>Workload score {x.score} · On-time {x.ontime===null?'chưa đủ dữ liệu':x.ontime+'%'}</small></article>)}</div>}
-
-      {tab==='insights'&&<div className="panel" style={{padding:18}}><h3 style={{marginTop:0}}>Manager Insights</h3><div style={{display:'grid',gap:10}}>
-        <div style={{padding:13,border:'1px solid #eceff3',borderRadius:10}}><b>Project rủi ro:</b> {atRisk.length?`${atRisk.length} Project đang ở mức At risk. Ưu tiên kiểm tra ${atRisk.slice(0,3).map(x=>x.p.name).join(', ')}.`:'Chưa có Project nào bị đánh dấu At risk trong bộ lọc hiện tại.'}</div>
-        <div style={{padding:13,border:'1px solid #eceff3',borderRadius:10}}><b>Quá tải:</b> {overloaded.length?`${overloaded.length} người có workload Overloaded: ${overloaded.slice(0,5).map(x=>x.m.profiles?.full_name||x.m.profiles?.email).join(', ')}.`:'Chưa có người ở mức Overloaded.'}</div>
-        <div style={{padding:13,border:'1px solid #eceff3',borderRadius:10}}><b>Có thể nhận thêm việc:</b> {underloaded.length?`${underloaded.length} người đang ở mức Low: ${underloaded.slice(0,5).map(x=>x.m.profiles?.full_name||x.m.profiles?.email).join(', ')}.`:'Không có member active ở mức Low trong bộ lọc hiện tại.'}</div>
-        <div style={{padding:13,border:'1px solid #eceff3',borderRadius:10}}><b>Review backlog:</b> {overall.review?`${overall.review} task đang chờ Review.${reviewLeaders.length?' Người đang có nhiều task review: '+reviewLeaders.map(x=>`${x.m.profiles?.full_name||x.m.profiles?.email} (${x.review})`).join(', ')+'.':''}`:'Không có task chờ Review.'}</div>
-        <div style={{padding:13,border:'1px solid #eceff3',borderRadius:10}}><b>Đúng hạn:</b> {overall.ontime===null?'Chưa đủ dữ liệu completed_at + deadline để tính tỷ lệ đúng hạn.':`Tỷ lệ hoàn thành đúng hạn hiện tại là ${overall.ontime}%.`}</div>
-        <small style={{color:'#7b8491'}}>Workload là chỉ số hỗ trợ điều phối, không phải điểm đánh giá nhân sự. Score hiện tính theo task active, in-progress, priority cao, overdue, review và số Project đang tham gia.</small>
-      </div></div>}
+  const Kpi=({label,value,tone='#2563eb',onClick})=><button type="button" onClick={onClick} style={{textAlign:'left',border:'1px solid #e2e8f0',background:'#fff',borderRadius:18,padding:'14px 15px',minHeight:96,boxShadow:'0 8px 24px rgba(15,57,104,.05)',cursor:onClick?'pointer':'default'}}><div style={{fontSize:12,color:'#64748b',fontWeight:800,textTransform:'uppercase',letterSpacing:.35}}>{label}</div><div style={{fontSize:30,fontWeight:950,color:tone,marginTop:6}}>{value}</div></button>
+  return <section className="page execReport" style={{background:'linear-gradient(180deg,#f7fbff 0,#fff 46%,#fffaf5 100%)',minHeight:'calc(100vh - 64px)'}}>
+    <style>{`@media(max-width:768px){.execTop{align-items:flex-start!important}.execTitle{font-size:25px!important}.execMode{width:100%;display:grid!important;grid-template-columns:1fr 1fr}.execMode button{min-height:44px}.execFilters{display:flex!important;overflow-x:auto!important;gap:8px!important;padding-bottom:7px!important;scrollbar-width:none}.execFilters>*{flex:0 0 178px!important;min-height:44px!important;font-size:16px!important}.execKpis{grid-template-columns:repeat(2,minmax(0,1fr))!important}.execGrid2{grid-template-columns:1fr!important}.execProjectRow{grid-template-columns:minmax(0,1fr) 70px!important}.execProjectRow .deskOnly{display:none!important}.execWorkload{display:flex!important;overflow-x:auto!important;scroll-snap-type:x mandatory!important}.execPerson{flex:0 0 84vw!important;max-width:340px!important;scroll-snap-align:start!important}.execRiskGrid{grid-template-columns:repeat(2,minmax(0,1fr))!important}.execBottomSheet{position:fixed!important;left:0!important;right:0!important;bottom:0!important;z-index:2800!important;max-height:72dvh!important;border-radius:22px 22px 0 0!important;padding-bottom:env(safe-area-inset-bottom)!important;box-shadow:0 -18px 60px rgba(15,23,42,.25)!important}.execReport{padding-bottom:120px!important}}@media(max-width:390px){.execKpis{grid-template-columns:repeat(2,minmax(0,1fr))!important}.execKpis button{padding:12px!important;min-height:90px!important}.execKpis button div:nth-child(2){font-size:27px!important}}`}</style>
+    <div className="execTop" style={{display:'flex',justifyContent:'space-between',gap:14,alignItems:'center',marginBottom:14,flexWrap:'wrap'}}><div><div style={{fontSize:12,fontWeight:900,color:'#f97316',letterSpacing:.8}}>FPTU MKT WORK</div><h1 className="execTitle" style={{margin:'4px 0',fontSize:34,color:'#0f2847'}}>Marketing Department Overview</h1><p style={{margin:0,color:'#64748b'}}>Tổng quan hoạt động, tiến độ và rủi ro của phòng Marketing.</p></div><div className="execMode" style={{display:'flex',gap:6,background:'#fff',border:'1px solid #dbe5ef',padding:4,borderRadius:14}}><button onClick={()=>setMode('executive')} className={mode==='executive'?'primary':'secondary'}>Executive</button><button onClick={()=>setMode('management')} className={mode==='management'?'primary':'secondary'}>Management</button></div></div>
+    <div className="execFilters" style={{display:'grid',gridTemplateColumns:'170px 160px 1fr 180px 160px auto',gap:8,marginBottom:14}}><select value={period} onChange={e=>setPeriod(e.target.value)}><option value="today">Hôm nay</option><option value="week">Tuần này</option><option value="month">Tháng này</option><option value="d7">7 ngày gần nhất</option><option value="d30">30 ngày gần nhất</option><option value="custom">Từ ngày → đến ngày</option><option value="all">Tất cả thời gian</option></select><select value={teamFilter} onChange={e=>setTeamFilter(e.target.value)}><option value="all">Team: Tất cả</option>{(teams||[]).map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select><select value={projectFilter} onChange={e=>setProjectFilter(e.target.value)}><option value="all">Project: Tất cả</option>{(projects||[]).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select><select value={leadFilter} onChange={e=>setLeadFilter(e.target.value)}><option value="all">Project Lead: Tất cả</option>{(members||[]).map(m=><option key={m.user_id} value={m.user_id}>{m.profiles?.full_name||m.profiles?.email}</option>)}</select><select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)}><option value="all">Status: Tất cả</option>{STATUS.map(s=><option key={s} value={s}>{LABEL[s]||s}</option>)}</select><button className="secondary" onClick={resetFilters}>Đặt lại</button></div>
+    {period==='custom'&&<div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:14}}><label style={{display:'flex',gap:8,alignItems:'center'}}>Từ ngày <input type="date" value={customFrom} onChange={e=>setCustomFrom(e.target.value)}/></label><label style={{display:'flex',gap:8,alignItems:'center'}}>Đến ngày <input type="date" value={customTo} onChange={e=>setCustomTo(e.target.value)}/></label></div>}
+    {loading?<div className="panel"><div className="empty">Đang tải dashboard...</div></div>:<>
+      <div className="execKpis" style={{display:'grid',gridTemplateColumns:'repeat(6,minmax(120px,1fr))',gap:10,marginBottom:14}}><Kpi label="Projects" value={overall.projects}/><Kpi label="Active Tasks" value={overall.active} tone="#16a34a"/><Kpi label="Overdue" value={overall.overdue} tone="#dc2626" onClick={()=>setDetail('overdue')}/><Kpi label="At Risk" value={overall.risk} tone="#f97316"/><Kpi label="In Review" value={overall.review} tone="#7c3aed" onClick={()=>setDetail('review')}/><Kpi label="Active Members" value={overall.members} tone="#2563eb"/></div>
+      <div className="execGrid2" style={{display:'grid',gridTemplateColumns:'1fr 1.15fr .8fr',gap:12,marginBottom:12}}>
+        <div className="panel" style={{padding:16}}><h3 style={{marginTop:0}}>Project Health</h3><div style={{display:'flex',alignItems:'center',gap:18}}><div style={{width:128,height:128,borderRadius:'50%',background:`conic-gradient(#22c55e 0 ${healthyPct}%,#f59e0b ${healthyPct}% ${healthyPct+watchPct}%,#ef4444 ${healthyPct+watchPct}% ${healthyPct+watchPct+riskPct}%)`,display:'grid',placeItems:'center'}}><div style={{width:82,height:82,borderRadius:'50%',background:'#fff',display:'grid',placeItems:'center',textAlign:'center'}}><b style={{fontSize:26}}>{pm.length}</b><small>Projects</small></div></div><div style={{display:'grid',gap:8,flex:1}}><div>🟢 <b>{health.Healthy}</b> Healthy</div><div>🟠 <b>{health.Watch}</b> Watch</div><div>🔴 <b>{health['At Risk']}</b> At Risk</div></div></div></div>
+        <div className="panel" style={{padding:16}}><h3 style={{marginTop:0}}>Task Flow</h3><div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8,alignItems:'end',height:150}}>{taskFlow.map(([l,v,c])=><div key={l} style={{display:'grid',gridTemplateRows:'1fr auto auto',height:'100%',alignItems:'end',textAlign:'center'}}><div style={{height:`${Math.max(10,v/maxFlow*100)}%`,background:c,borderRadius:'9px 9px 3px 3px'}}/><b style={{fontSize:19,marginTop:6}}>{v}</b><small>{l}</small></div>)}</div></div>
+        <div className="panel" style={{padding:16}}><h3 style={{marginTop:0}}>Deadline Risk</h3><div className="execRiskGrid" style={{display:'grid',gap:8}}>{[['Overdue',overall.overdue,'#dc2626','overdue'],['Hôm nay',dueToday,'#f97316','today'],['3 ngày tới',due3,'#f59e0b','all'],['7 ngày tới',due7,'#2563eb','all']].map(([l,v,c,k])=><button key={l} onClick={()=>k!=='all'&&setDetail(k)} style={{border:'1px solid #e5e7eb',background:'#fff',borderRadius:12,padding:'11px 12px',display:'flex',justifyContent:'space-between',cursor:k==='all'?'default':'pointer'}}><span>{l}</span><b style={{color:c,fontSize:20}}>{v}</b></button>)}</div></div>
+      </div>
+      <div className="execGrid2" style={{display:'grid',gridTemplateColumns:'1.1fr .9fr',gap:12,marginBottom:12}}><div className="panel" style={{padding:16}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><h3 style={{margin:'0 0 12px'}}>Project Progress</h3><small>{pm.length} project</small></div><div style={{display:'grid',gap:10}}>{pm.slice(0,8).map(x=><button key={x.p.id} className="execProjectRow" onClick={()=>onOpenProject?.(x.p)} style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) 80px 110px',gap:10,alignItems:'center',border:0,borderBottom:'1px solid #eef2f7',background:'transparent',padding:'10px 0',textAlign:'left',cursor:'pointer'}}><div><b>{x.p.name}</b><div style={{height:7,background:'#eaf0f6',borderRadius:999,marginTop:7,overflow:'hidden'}}><div style={{height:'100%',width:`${x.progress}%`,background:x.health==='At Risk'?'#ef4444':x.health==='Watch'?'#f59e0b':'#3b82f6'}}/></div></div><b>{x.progress}%</b><span className="deskOnly" style={{color:x.health==='At Risk'?'#dc2626':x.health==='Watch'?'#d97706':'#15803d',fontWeight:800}}>{x.health}</span></button>)}</div></div>
+        <div className="panel" style={{padding:16}}><h3 style={{marginTop:0}}>Team Workload</h3><div className="execWorkload" style={{display:'grid',gap:8}}>{people.slice(0,7).map(x=><article className="execPerson" key={x.m.user_id} style={{border:'1px solid #e5e7eb',borderRadius:14,padding:12,background:'#fff'}}><div style={{display:'flex',justifyContent:'space-between',gap:10}}><b>{x.m.profiles?.full_name||x.m.profiles?.email}</b><span style={{fontWeight:850,color:x.workload==='High'?'#dc2626':x.workload==='Low'?'#2563eb':'#15803d'}}>{x.workload}</span></div><small>{teamMap.get(x.m.team_id)?.name||x.m.teams?.name||''}</small><div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:6,marginTop:10,textAlign:'center'}}><div><b>{x.active}</b><small style={{display:'block'}}>Active</small></div><div><b style={{color:x.overdue?'#dc2626':undefined}}>{x.overdue}</b><small style={{display:'block'}}>Overdue</small></div><div><b>{x.review}</b><small style={{display:'block'}}>Review</small></div></div></article>)}</div></div></div>
+      <div className="execGrid2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><div className="panel" style={{padding:16}}><h3 style={{marginTop:0}}>Executive Attention</h3>{alerts.length?alerts.map((a,i)=><button key={i} onClick={a.go} style={{width:'100%',display:'flex',justifyContent:'space-between',gap:10,border:0,borderBottom:'1px solid #eef2f7',background:'transparent',padding:'12px 0',textAlign:'left',cursor:'pointer'}}><span><b style={{marginRight:8}}>{i+1}.</b>{a.label}</span><span style={{fontWeight:800,color:a.sev==='High'?'#dc2626':'#d97706'}}>{a.sev}</span></button>):<div className="empty">Không có cảnh báo nổi bật trong khoảng thời gian này.</div>}</div><div className="panel" style={{padding:16}}><h3 style={{marginTop:0}}>Team Overview</h3>{(teams||[]).map(t=>{const list=base.filter(x=>(projectMap.get(x.project_id)?.team_id||x.project?.team_id)===t.id);return <div key={t.id} style={{display:'flex',justifyContent:'space-between',padding:'10px 0',borderBottom:'1px solid #eef2f7'}}><b>{t.name}</b><span>{list.filter(active).length} active · <b style={{color:list.filter(overdue).length?'#dc2626':undefined}}>{list.filter(overdue).length} overdue</b></span></div>})}</div></div>
+      {mode==='management'&&<div className="panel" style={{marginTop:12,padding:16}}><h3 style={{marginTop:0}}>Management Drill-down</h3><div style={{display:'grid',gap:8}}>{base.slice(0,20).map(t=><button key={t.id} onClick={()=>onOpenTask?.(t)} className="memberRow" style={{width:'100%'}}><span><b>{t.title}</b><small>{t.project?.name||projectMap.get(t.project_id)?.name} · {LABEL[t.status]||t.status}</small></span><span style={{color:overdue(t)?'#dc2626':'#64748b',fontWeight:800}}>{t.due_at?fmtDate(t.due_at):'—'}</span></button>)}</div></div>}
+      {detail!=='all'&&<div className="execBottomSheet panel" style={{marginTop:12,padding:16}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}><h3 style={{margin:0}}>{detail==='overdue'?'Task quá hạn':detail==='review'?'Task chờ Review':'Task đến hạn hôm nay'}</h3><button className="secondary" onClick={()=>setDetail('all')}>Đóng</button></div>{showTasks.length?showTasks.map(t=><button key={t.id} onClick={()=>onOpenTask?.(t)} className="memberRow" style={{width:'100%'}}><span><b>{t.title}</b><small>{t.project?.name||projectMap.get(t.project_id)?.name}</small></span><span>{t.due_at?fmtDate(t.due_at):'—'}</span></button>):<div className="empty">Không có task phù hợp.</div>}</div>}
     </>}
   </section>
 }
-
 
 // =====================================================
 // MEMBER PERMISSION DRAWER
